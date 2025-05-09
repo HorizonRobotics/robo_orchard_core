@@ -1,0 +1,170 @@
+[project]
+name = "robo_orchard_core"
+dynamic = ["version"]
+description = "Core package of the project RoboOrchard"
+readme = "README.md"
+authors = [{ name = "The RoboOrchard Team" }]
+dependencies = [
+    "rtoml",
+    "pyyaml",
+    "deprecated",
+    "torch",
+    "pydantic<=2.10.6",
+    "pydantic-settings",
+    "ordered-set",
+]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+kinematic = ["pytorch_kinematics"]
+ipy_viz = ["ipywidgets", "ipycanvas", "ipyevents", "pillow"]
+virtual_desktop = [
+    "ipywidgets",
+    "ipycanvas",
+    "ipyevents",
+    "pillow",
+    "pyautogui",
+    "pyvirtualdisplay",
+    "mss",
+]
+all = ["robo_orchard_core[kinematic,ipy_viz,virtual_desktop]"]
+
+[project.urls]
+Homepage = "https://github.com/HorizonRobotics/robo_orchard_core"
+Repository = "https://github.com/HorizonRobotics/robo_orchard_core"
+Source = "https://github.com/HorizonRobotics/robo_orchard_core"
+Issues = "https://github.com/HorizonRobotics/robo_orchard_core/issues"
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+package-dir = { "robo_orchard_core" = "robo_orchard_core" }
+
+[tool.ruff]
+
+exclude = [
+    # common
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+    # project
+    "3rdparty/*",
+    "dummy/*",
+    "*.pyi",
+    "*_pb2.py",
+]
+
+# Same as Black.
+line-length = 79
+indent-width = 4
+
+# required python 3.10
+target-version = "py310"
+
+[tool.ruff.lint]
+
+select = [
+    "E",   # flake8-errors
+    "F",   # pyflake
+    "I",   # isort
+    "B",   # flake8-bugber
+    "TID", # flake8-tidy-imports
+    "D",   # pydocstyle
+    "Q",   # flake8-quotes
+    "W",   # flake8-warnings
+]
+
+ignore = [
+    "D104",
+    "D107",
+    "D202",
+    "D105",
+    "D100",
+    "D102",
+    "D103",
+    "D101",
+    "D301",
+    "F403",
+    "B904", # Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+    "B028", # No explicit `stacklevel` keyword argument found
+    "D417", # requires documentation for every function parameter.
+]
+
+[tool.ruff.lint.isort]
+known-third-party = []
+no-lines-before = ["future", "standard-library"]
+combine-as-imports = true
+force-wrap-aliases = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Disallow all relative imports.
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-quotes]
+avoid-escape = false
+
+[tool.ruff.lint.mccabe]
+max-complexity = 18
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["TID252", "F401"]
+
+[tool.ruff.format]
+
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+docstring-code-format = true
+
+[tool.pyright]
+enableExperimentalFeatures = false
+typeCheckingMode = "basic"
+reportRedeclaration = false
+include = ["robo_orchard_core", "tests"]
+exclude = ["robo_orchard_core/utils/string.py"]
+# make pyright support editable install mode
+extraPaths = ["."]

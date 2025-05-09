@@ -1,0 +1,30 @@
+Installation
+==============
+
+The recommended environment for running **RoboOrchard Core** is **Ubuntu 22.04** with
+**Python 3.10**, which is the environment in which the code has been developed and
+tested.
+
+
+From PyPI (Recommended)
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+RoboOrchard Core packages are available on PyPI. To install the **RoboOrchard Core** packages from PyPI, you can use the following command:
+
+.. code-block:: bash
+
+    pip install robo_orchard_core
+
+
+From Source
+^^^^^^^^^^^^^^
+
+For development purposes, you may want to install **RoboOrchard Core** from source. To install
+**RoboOrchard Core** from source, you can clone the repository and install the packages using the
+following command:
+
+.. code-block:: bash
+
+    # Clone the repository and move to the project directory first.
+
+    make install-editable
