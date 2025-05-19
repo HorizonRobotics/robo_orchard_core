@@ -166,5 +166,6 @@ typeCheckingMode = "basic"
 reportRedeclaration = false
 include = ["robo_orchard_core", "tests"]
 exclude = ["robo_orchard_core/utils/string.py"]
-# make pyright support editable install mode
-extraPaths = ["."]
+# Do not set extraPaths in pyrightconfig.json, because
+# it will override the vscode settings.
+# extraPaths = ["."]

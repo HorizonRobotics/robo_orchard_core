@@ -22,7 +22,6 @@ import importlib
 import inspect
 import io
 import typing
-from abc import abstractmethod
 from copy import deepcopy
 from typing import Annotated, Any, Generic, Literal, Type
 
@@ -39,7 +38,6 @@ from pydantic import (
 from pydantic.functional_serializers import PlainSerializer, model_serializer
 from pydantic.functional_validators import PlainValidator, model_validator
 from pydantic_core import core_schema, from_json, to_json
-from pydantic_settings import BaseSettings
 from typing_extensions import Callable, ParamSpec, Self, TypeVar
 
 from robo_orchard_core.utils.logging import LoggerManager
@@ -606,22 +604,6 @@ class CallableConfig(Config, Generic[T_co]):
             dict_data.pop("__config_type__")
         dict_data.update(kwargs)
         return self.func(**dict_data)
-
-
-class SettingConfig(Config, BaseSettings):
-    __exclude_config_type__: bool = True
-
-    @abstractmethod
-    def command_impl(self) -> str:
-        """The implementation of the command using this setting.
-
-        Returns:
-            str: User-defined command string. Usually, it is the command
-                string to be or has been executed in the terminal.
-
-        """
-
-        raise NotImplementedError("The method is not implemented.")
 
 
 ConfigT = TypeVar("ConfigT", bound=Config)
