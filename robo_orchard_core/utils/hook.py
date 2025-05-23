@@ -17,16 +17,112 @@
 """The hook utilities for registering and calling hooks."""
 
 from __future__ import annotations
+import inspect
+import os
 import weakref
 from abc import ABCMeta, abstractmethod
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Callable, Generator, Generic, TypeVar
 
 from ordered_set import OrderedSet
 from typing_extensions import Self
 
+from robo_orchard_core.utils.string import add_indentation
+
 T = TypeVar("T")
 CallableType = TypeVar("CallableType", bound=Callable)
+
+__repr_indent__ = 2
+
+
+@dataclass
+class FunctionInfo:
+    """A data class for storing function information."""
+
+    func: Callable
+    """The callable function."""
+
+    owner: Any
+    """The owner of the function.
+
+    If the function is a method, this is the instance of the class.
+    If the function is a static method or class method, this is the class.
+    If the function is a standalone function, this is None.
+    """
+
+    source_file: str | None
+    """The source file of the function."""
+    source_lineno: int
+    """The source line number of the function."""
+    source_code: str
+    """The source code of the function."""
+    signature: inspect.Signature
+    """The signature of the function."""
+
+    @property
+    def source_file_lineno(self) -> str:
+        """Get the source file and line number of the function.
+
+        Returns:
+            str: The source file and line number of the function.
+        """
+        return f"{self.source_file}:{self.source_lineno}"
+
+    @staticmethod
+    def from_callable(func: Callable) -> FunctionInfo:
+        """Create a FunctionInfo object from a callable.
+
+        Args:
+            func (Callable): The callable function.
+
+        Returns:
+            FunctionInfo: The FunctionInfo object.
+        """
+
+        if inspect.isfunction(func):
+            owner = None
+        elif inspect.ismethod(func):
+            owner = func.__self__
+        else:
+            raise ValueError("The function must be a function or a method.")
+
+        source_lines, source_lineno = inspect.getsourcelines(func)
+        signature = inspect.signature(func)
+        source_file = inspect.getsourcefile(func)
+        # use relative path for source file
+        if source_file is not None:
+            pwd = os.getcwd()
+            source_file = os.path.relpath(source_file, pwd)
+
+        return FunctionInfo(
+            func=func,
+            owner=owner,
+            source_file=source_file,
+            source_code="".join(source_lines),
+            source_lineno=source_lineno,
+            signature=signature,
+        )
+
+    def __repr__(self) -> str:
+        """Get the string representation of the FunctionInfo object.
+
+        Returns:
+            str: The string representation of the FunctionInfo object.
+        """
+        func_str = ""
+        if self.owner is None:
+            func_str = f"{self.func}"
+        elif isinstance(self.owner, type):
+            func_str = f"{self.owner.__name__}.{self.func.__name__}"
+        else:
+            func_str = (
+                f"bound method "
+                f"{self.owner.__class__.__name__}(id={id(self.owner)})."
+                f"{self.func.__name__}"
+            )
+
+        return f"<FunctionInfo {func_str} from {self.source_file_lineno}>"
 
 
 class RemoveableHandle(Generic[CallableType]):
@@ -128,6 +224,33 @@ class HookContext(Generic[T], metaclass=ABCMeta):
     provides a way to pass arguments to the hooks in a structured manner.
     """
 
+    def __init__(self, name: str | None = None):
+        """Initialize the hook context with a name.
+
+        Args:
+            name (str|None): The name of the hook context. If not provided,
+                it will be set to an empty string, which indicates
+                that the hook context is anonymous.
+                Defaults to None.
+        """
+        self.name = name
+
+    @property
+    def before_info(self) -> FunctionInfo | None:
+        """Get the function information of the before method.
+
+        If the before method is not defined, return None.
+        """
+        return FunctionInfo.from_callable(self.before)
+
+    @property
+    def after_info(self) -> FunctionInfo | None:
+        """Get the function information of the after method.
+
+        If the after method is not defined, return None.
+        """
+        return FunctionInfo.from_callable(self.after)
+
     @abstractmethod
     def before(self, arg: T):
         """Prepare the context for executing hooks.
@@ -172,12 +295,15 @@ class HookContext(Generic[T], metaclass=ABCMeta):
 
     @staticmethod
     def from_callable(
+        name: str | None = None,
         before: Callable[[T], None] | None = None,
         after: Callable[[T], None] | None = None,
     ) -> HookContext[T]:
         """Create a hook context from a callable.
 
         Args:
+            name (str | None): The name of the hook context. If not provided,
+                it will be set to an empty string.
             before (Callable[[T], None]): The callable to be used as the
                 `before` method.
             after (Callable[[T], None]): The callable to be used as the
@@ -186,7 +312,26 @@ class HookContext(Generic[T], metaclass=ABCMeta):
         Returns:
             HookContext[T]: The hook context created from the callable.
         """
-        return HookContextFromCallable(before, after)
+        return HookContextFromCallable(name=name, before=before, after=after)
+
+    def __repr__(self) -> str:
+        """Get the string representation of the HookContext object.
+
+        Returns:
+            str: The string representation of the HookContext object.
+        """
+        content = (
+            f"name={self.name}, \n"
+            f"before={self.before_info}, \n"
+            f"after={self.after_info}"
+        )
+
+        ret = (
+            f"<{self.__class__.__module__}.{self.__class__.__name__}(\n"
+            + add_indentation(content, __repr_indent__, first_line_indent=True)
+            + ")>"
+        )
+        return ret
 
 
 class HookContextFromCallable(HookContext[T]):
@@ -198,17 +343,40 @@ class HookContextFromCallable(HookContext[T]):
     `after` method.
 
     Args:
-        func (Callable[[T], T]): The callable to be used as the hook context.
+        name (str | None): The name of the hook context. If not provided,
+            it will be set to an empty string, which indicates
+            that the hook context is anonymous.
+            Defaults to None.
+        before (Callable[[T], None] | None): The callable to be used as the
+            `before` method. If not provided, it will be set to None.
+            Defaults to None.
+        after (Callable[[T], None] | None): The callable to be used as the
+            `after` method. If not provided, it will be set to None.
+            Defaults to None.
     """
 
     def __init__(
         self,
+        name: str | None = None,
         before: Callable[[T], None] | None = None,
         after: Callable[[T], None] | None = None,
     ):
         """Initialize the hook context with a callable."""
+        super().__init__(name)
         self._before = before
         self._after = after
+
+    @property
+    def before_info(self) -> FunctionInfo | None:
+        if self._before is None:
+            return None
+        return FunctionInfo.from_callable(self._before)
+
+    @property
+    def after_info(self) -> FunctionInfo | None:
+        if self._after is None:
+            return None
+        return FunctionInfo.from_callable(self._after)
 
     def before(self, arg: T):
         if self._before is not None:
@@ -236,7 +404,20 @@ class HookContextChannel(Generic[T]):
         """Get the number of registered hook context handlers."""
         return len(self._context_handlers)
 
-    def register(self, hook: HookContext[T]):
+    def __getitem__(self, item: int) -> HookContext[T]:
+        """Get the hook context handler at the given index.
+
+        Args:
+            item (int): The index of the hook context handler.
+
+        Returns:
+            HookContext[T]: The hook context handler at the given index.
+        """
+        return self._context_handlers[item]
+
+    def register(
+        self, hook: HookContext[T]
+    ) -> RemoveableHandle[Callable[[], None]]:
         """Register a hook context handler.
 
         Args:
@@ -318,3 +499,28 @@ class HookContextChannel(Generic[T]):
         finally:
             for hook in self._context_handlers:
                 hook.after(arg)
+
+    def __repr__(self) -> str:
+        """Get the string representation of the HookContextChannel object.
+
+        Returns:
+            str: The string representation of the HookContextChannel object.
+        """
+
+        hook_str = "["
+        for i, hook in enumerate(self._context_handlers):
+            if i != 0:
+                hook_str += ","
+            hook_str += "\n" + add_indentation(
+                f"{i}: {hook}", indent=__repr_indent__
+            )
+        if hook_str != "[":
+            hook_str += "\n"
+        hook_str += "]"
+        content = f"name={self.name}, \n" + f"hooks={hook_str}"
+        ret = (
+            f"<{self.__class__.__module__}.{self.__class__.__name__}(\n"
+            + add_indentation(content, __repr_indent__, first_line_indent=True)
+            + ")>"
+        )
+        return ret

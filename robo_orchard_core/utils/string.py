@@ -268,3 +268,42 @@ def resolve_matching_names_values(
         )
     # return
     return index_list, names_list, values_list
+
+
+def add_indentation(
+    text: str,
+    indent: int = 4,
+    indent_char: str = " ",
+    first_line_indent: bool = True,
+) -> str:
+    """Add indentation to a string.
+
+    Args:
+        text (str): The input string to be indented. The string may contain
+            multiple lines, and the indentation will be applied to each line.
+        indent (int, optional): The number of spaces to use for indentation.
+            Defaults to 4.
+        indent_char (str, optional): The character to use for indentation.
+            Defaults to " ".
+        first_line_indent (bool, optional): Whether to indent the first line.
+            Defaults to True.
+
+    Returns:
+        str: The indented string.
+    """
+    # Create the indentation string
+    indent_str = indent_char * indent
+    # Split the text into lines
+    lines = text.splitlines()
+    # Add indentation to each line
+    indented_lines = []
+    for i, line in enumerate(lines):
+        if i == 0 and not first_line_indent:
+            indented_lines.append(line)
+        else:
+            indented_lines.append(indent_str + line)
+    # Join the lines back together
+    ret = "\n".join(indented_lines)
+    if text.endswith("\n"):
+        ret += "\n"
+    return ret
