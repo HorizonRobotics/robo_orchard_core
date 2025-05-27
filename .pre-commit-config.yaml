@@ -32,7 +32,7 @@ repos:
     hooks:
       - id: nbstripout
         name: nbstripout notebook output
-        description: trip
+        description: trip out notebook 
         entry: nbstripout
         language: system
         exclude: (?x)(^3rdparty/)
@@ -43,7 +43,8 @@ repos:
     hooks:
       - id: pyright
         name: pyright type check
-        description: trip
+        description: pyright type check
         entry: pyright
         language: system
+        files: \.(py)$
         types: [python]

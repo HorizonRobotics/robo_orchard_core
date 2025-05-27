@@ -522,7 +522,9 @@ def axis_angle_to_matrix(axis_angle: torch.Tensor) -> torch.Tensor:
 
 
 @torch.jit.script
-def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
+def matrix_to_quaternion(
+    matrix: torch.Tensor, normalize_output: bool = False
+) -> torch.Tensor:
     """Convert rotations given as rotation matrices to quaternions.
 
     This function is copied from PyTorch3D to avoid dependency:
@@ -531,10 +533,11 @@ def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
 
     Args:
         matrix: Rotation matrices as tensor of shape (..., 3, 3).
+        normalize_output: If True, the output quaternions will be normalized
+            to unit quaternions. Defaults to False.
 
     Returns:
         quaternions in (w, x, y, z), as tensor of shape (..., 4).
-
 
     """
     if matrix.size(-1) != 3 or matrix.size(-2) != 3:
@@ -587,7 +590,10 @@ def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
     out = quat_candidates[
         F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :
     ].reshape(batch_dim + (4,))
-    return quaternion_standardize(normalize(out))
+    if not normalize_output:
+        return quaternion_standardize(out)
+    else:
+        return quaternion_standardize(normalize(out))
 
 
 @torch.jit.script
