@@ -23,7 +23,6 @@ pip install robo_orchard_core
 #### From source
 
 ```bash
-cd /path/to/robo_orchard_core
 make install
 ```
 

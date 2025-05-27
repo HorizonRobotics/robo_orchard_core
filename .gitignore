@@ -41,6 +41,10 @@ rosbag2*
 ## tmp & debug
 dummy/
 
+## executable
+*.exe
+*.bin
+
 ## pkl
 *.pkl
 *.pickle
