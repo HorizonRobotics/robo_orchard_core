@@ -35,6 +35,8 @@ CallableType = TypeVar("CallableType", bound=Callable)
 
 __repr_indent__ = 2
 
+NO_SOURCE_FILE = os.environ.get("ROBO_ORCHARD_NO_SOURCE_FILE", "0") == "1"
+
 
 @dataclass
 class FunctionInfo:
@@ -90,10 +92,6 @@ class FunctionInfo:
         source_lines, source_lineno = inspect.getsourcelines(func)
         signature = inspect.signature(func)
         source_file = inspect.getsourcefile(func)
-        # use relative path for source file
-        if source_file is not None:
-            pwd = os.getcwd()
-            source_file = os.path.relpath(source_file, pwd)
 
         return FunctionInfo(
             func=func,
@@ -122,7 +120,12 @@ class FunctionInfo:
                 f"{self.func.__name__}"
             )
 
-        return f"<FunctionInfo {func_str} from {self.source_file_lineno}>"
+        if NO_SOURCE_FILE:
+            source_info = f"{self.func.__module__}"
+        else:
+            source_info = f"{self.source_file_lineno}"
+
+        return f"<FunctionInfo {func_str} from {source_info}>"
 
 
 class RemoveableHandle(Generic[CallableType]):
