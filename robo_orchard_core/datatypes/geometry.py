@@ -78,13 +78,13 @@ class Transform3D(DataClass):
 
     def __post_init__(self):
         if isinstance(self.trans, torch.Tensor):
-            assert (
-                self.trans.dim() == 1 and self.trans.shape[0] == 3
-            ), "Translation must be a 1D tensor with shape (3)."
+            assert self.trans.dim() == 1 and self.trans.shape[0] == 3, (
+                "Translation must be a 1D tensor with shape (3)."
+            )
         if isinstance(self.rot, torch.Tensor):
-            assert (
-                self.rot.dim() == 1 and self.rot.shape[0] == 4
-            ), "Rotation must be a 1D tensor with shape (4)."
+            assert self.rot.dim() == 1 and self.rot.shape[0] == 4, (
+                "Rotation must be a 1D tensor with shape (4)."
+            )
 
     def as_BatchTransform3D(self, device: Device = "cpu") -> BatchTransform3D:
         """Convert the Transform3D to a batch of transformations.

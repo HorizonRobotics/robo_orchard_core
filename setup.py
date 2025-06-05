@@ -16,6 +16,7 @@
 
 import os
 import subprocess
+import warnings
 
 from setuptools import setup
 
@@ -48,15 +49,36 @@ def get_version() -> str:
     with open(os.path.join(PYTHON_BASE_DIR, "VERSION"), "r") as fp:
         base_version = fp.read().strip()
 
-    def get_full_version(version_postfix_path) -> str:
+    def get_full_version(
+        version_postfix_path, throw_if_not_exist: bool = True
+    ) -> str:
         if os.path.exists(version_postfix_path):
             with open(version_postfix_path, "r") as fp:
                 post_fix = fp.read().strip()
             return f"{base_version}{post_fix}"
-        else:
+        elif throw_if_not_exist:
             raise VersionPostfixNotExist(
                 "VERSION_POSTFIX file not found! please call `make version` first"  # noqa: E501
             )
+        else:
+            warnings.warn(
+                "VERSION_POSTFIX file not found! using base version only",
+                UserWarning,
+            )
+            return base_version
+
+    # generate git hash
+    try:
+        repo_git_hash = subprocess.check_output(
+            "git log -1 --pretty=format:%h".split()
+        ).decode()
+    except subprocess.CalledProcessError:
+        # if git command fails, use a placeholder
+        warnings.warn(
+            "Failed to get git hash, using 'unknown' as placeholder",
+            UserWarning,
+        )
+        repo_git_hash = "unknown"
 
     version_postfix_path = os.path.join(PYTHON_BASE_DIR, "VERSION_POSTFIX")
 
@@ -67,12 +89,16 @@ def get_version() -> str:
         version_postfix_path = os.path.join(
             os.path.dirname(PYTHON_BASE_DIR), "VERSION_POSTFIX"
         )
-        full_version = get_full_version(version_postfix_path)
-
-    # generate git hash
-    repo_git_hash = subprocess.check_output(
-        "git log -1 --pretty=format:%h".split()
-    ).decode()
+        try:
+            full_version = get_full_version(version_postfix_path)
+        except VersionPostfixNotExist:
+            # if still not found, use base version only
+            warnings.warn(
+                "VERSION_POSTFIX file not found in both current and parent directories! "  # noqa: E501
+                "try to using base version.",
+                UserWarning,
+            )
+            full_version = f"{base_version}.dev"
 
     with open(
         os.path.join(PYTHON_BASE_DIR, PROJECT_NAME, "version.py"), "w"
