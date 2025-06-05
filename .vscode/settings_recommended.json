@@ -1,0 +1,79 @@
+{
+    "autoDocstring.docstringFormat": "google",
+    "autoDocstring.guessTypes": true,
+    "[python]": {
+        "editor.tabSize": 4,
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "python.languageServer": "Pylance",
+    "spellright.language": [
+        "en"
+    ],
+    "spellright.documentTypes": [
+        "latex",
+        "makefile",
+        "markdown",
+        "plaintext"
+    ],
+    "psi-header.config": {
+        "license": "Custom",
+        "author": "RoboOrchard Developers",
+        "company": "Horizon Robotics"
+    },
+    "psi-header.license-text": [
+        "Licensed under the Apache License, Version 2.0 (the \"License\");",
+        "you may not use this file except in compliance with the License.",
+        "You may obtain a copy of the License at",
+        "",
+        "      http://www.apache.org/licenses/LICENSE-2.0",
+        "",
+        "Unless required by applicable law or agreed to in writing, software",
+        "distributed under the License is distributed on an \"AS IS\" BASIS,",
+        "WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or",
+        "implied. See the License for the specific language governing ",
+        "permissions and limitations under the License."
+    ],
+    "psi-header.lang-config": [
+        {
+            "language": "python",
+            "begin": "#",
+            "prefix": "# ",
+            "end": "",
+            "blankLinesBefore": 0,
+            "blankLinesAfter": 0,
+            "beforeHeader": [
+                "# Project RoboOrchard"
+            ]
+        }
+    ],
+    "psi-header.templates": [
+        {
+            "language": "python",
+            "template": [
+                "Copyright (c) <<year>> <<company>>. All Rights Reserved.",
+                "",
+                "<<licensetext>>"
+            ]
+        },
+        {
+            "language": "cuda",
+            "template": [
+                "Project RoboOrchard",
+                "",
+                "Copyright (c) <<year>> <<company>>. All Rights Reserved.",
+                "",
+                "<<licensetext>>"
+            ]
+        },
+        {
+            "language": "cpp",
+            "template": [
+                "Project RoboOrchard",
+                "",
+                "Copyright (c) <<year>> <<company>>. All Rights Reserved.",
+                "",
+                "<<licensetext>>"
+            ]
+        }
+    ]
+}

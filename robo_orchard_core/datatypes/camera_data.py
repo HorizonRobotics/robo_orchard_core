@@ -23,6 +23,11 @@ from robo_orchard_core.datatypes.geometry import BatchPose6D, Pose6D
 from robo_orchard_core.utils.config import TorchTensor
 from robo_orchard_core.utils.torch_utils import Device
 
+__all___ = [
+    "CameraData",
+    "BatchCameraData",
+]
+
 
 class CameraData(DataClass):
     """Data class for camera sensor data."""
@@ -49,6 +54,25 @@ class CameraData(DataClass):
     H is the height of the image, and W is the width of the image.
 
     For compressed data, the shape is (N, ) where N is the number of bytes.
+    """
+
+    distortion_model: (
+        Literal["plumb_bob", "rational_polynomial", "equidistant"] | None
+    ) = None
+    """The distortion model of the camera.
+
+    If None, no distortion model is applied. The distortion model follows ROS2
+    convention,  see:
+    - http://docs.ros.org/en/api/image_geometry/html/c++/pinhole__camera__model_8cpp.html
+    - http://docs.ros.org/en/rolling/p/camera_calibration/doc/index.html
+
+    """
+
+    distorsion_coefficients: TorchTensor | None = None
+    """Distortion coefficients of the camera.
+
+    It should be 1D tensor with 4, 5, or 8 elements depending on the
+    distortion model.
     """
 
     pix_fmt: Literal["rgb", "bgr"] | None = None
@@ -106,6 +130,28 @@ class BatchCameraData(DataClass):
     """The intrinsic matrices for all camera.
 
     Shape is (B, 3, 3), where B is the batch size.
+    """
+
+    distortion_model: (
+        Literal["plumb_bob", "rational_polynomial", "equidistant"] | None
+    ) = None
+    """The distortion model of the camera.
+
+    If None, no distortion model is applied. The distortion model follows ROS2
+    convention,  see:
+    - http://docs.ros.org/en/api/image_geometry/html/c++/pinhole__camera__model_8cpp.html
+    - http://docs.ros.org/en/rolling/p/camera_calibration/doc/index.html
+
+    """
+
+    distorsion_coefficients: TorchTensor | None = None
+    """Distortion coefficients of the camera.
+
+    It should be 1D tensor with 4, 5, or 8 elements depending on the
+    distortion model.
+
+    All data in the batch should have the same distortion model and
+    coefficients.
     """
 
     sensor_data: TorchTensor

@@ -32,7 +32,16 @@ from robo_orchard_core.utils.math import (
 from robo_orchard_core.utils.math.transform.transform3d import Transform3D_M
 from robo_orchard_core.utils.torch_utils import Device
 
-__all__ = ["Transform3D", "BatchTransform3D", "Pose6D", "BatchPose6D"]
+__all__ = [
+    "Transform3D",
+    "BatchTransform3D",
+    "Pose",
+    "Pose6D",
+    "FrameTransform",
+    "BatchPose6D",
+    "BatchPose",
+    "BatchFrameTransform",
+]
 
 
 class Transform3D(DataClass):
@@ -69,13 +78,13 @@ class Transform3D(DataClass):
 
     def __post_init__(self):
         if isinstance(self.trans, torch.Tensor):
-            assert self.trans.dim() == 1 and self.trans.shape[0] == 3, (
-                "Translation must be a 1D tensor with shape (3)."
-            )
+            assert (
+                self.trans.dim() == 1 and self.trans.shape[0] == 3
+            ), "Translation must be a 1D tensor with shape (3)."
         if isinstance(self.rot, torch.Tensor):
-            assert self.rot.dim() == 1 and self.rot.shape[0] == 4, (
-                "Rotation must be a 1D tensor with shape (4)."
-            )
+            assert (
+                self.rot.dim() == 1 and self.rot.shape[0] == 4
+            ), "Rotation must be a 1D tensor with shape (4)."
 
     def as_BatchTransform3D(self, device: Device = "cpu") -> BatchTransform3D:
         """Convert the Transform3D to a batch of transformations.
@@ -341,7 +350,7 @@ class BatchTransform3D(DataClass):
         return type(self)(xyz=t, quat=q)
 
 
-class Pose6D(Transform3D):
+class Pose(Transform3D):
     """A 6D pose data class.
 
     Different from Transform3D, Pose6D is composed of a 3D position and a
@@ -350,7 +359,14 @@ class Pose6D(Transform3D):
 
     It is more intuitive to use the position property when dealing with poses,
     as you can apply a tranlation to a point, but not to a vector.
+
+    In addition, the Pose also has a frame_id attribute, which is used to
+    specify the coordinate frame ID of reference for the pose.
+
     """
+
+    frame_id: str | None = None
+    """The coordinate frame ID of reference for the pose."""
 
     @property
     def pos(self) -> tuple[float, float, float] | torch.Tensor:
@@ -384,7 +400,7 @@ class Pose6D(Transform3D):
         )
 
 
-class BatchPose6D(BatchTransform3D):
+class BatchPose(BatchTransform3D):
     """A batch of 6D poses.
 
     This class is used to represent a batch of 6D poses. It is useful when
@@ -394,7 +410,14 @@ class BatchPose6D(BatchTransform3D):
     and a 3D orientation. Although the position and orientation share the
     same underlying data in Transform3D, it is more intuitive to use the
     position property when dealing with poses.
+
+    In addition, the Pose also has a frame_id attribute, which is used to
+    specify the coordinate frame ID of reference for the pose.
+
     """
+
+    frame_id: str | None = None
+    """The coordinate frame ID of reference for the pose."""
 
     @property
     def pos(self) -> TorchTensor:
@@ -411,3 +434,33 @@ class BatchPose6D(BatchTransform3D):
     @orientation.setter
     def orientation(self, value: TorchTensor):
         self.quat = value
+
+
+class FrameTransform(Transform3D):
+    """A transformation between two coordinate frames in 3D space.
+
+    A transformation must specify the parent and child frames it connects.
+    """
+
+    parent_frame_id: str
+    """The coordinate frame ID of the parent frame."""
+    child_frame_id: str
+    """The coordinate frame ID of the child frame."""
+
+
+class BatchFrameTransform(BatchTransform3D):
+    """A batch of transformations between two coordinate frames in 3D space.
+
+    A transformation must specify the parent and child frames it connects,
+    and all sample should share the same parent and child frames.
+    """
+
+    parent_frame_id: str
+    """The coordinate frame ID of the parent frame."""
+    child_frame_id: str
+    """The coordinate frame ID of the child frame."""
+
+
+# for deprecated naming compatibility
+Pose6D = Pose
+BatchPose6D = BatchPose
