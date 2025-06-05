@@ -29,7 +29,9 @@ from robo_orchard_core.utils.math import (
     math_utils,
     quaternion_to_matrix,
 )
-from robo_orchard_core.utils.math.transform.transform3d import Transform3D_M
+from robo_orchard_core.utils.math.transform.transform3d import (
+    Transform3D_M,
+)
 from robo_orchard_core.utils.torch_utils import Device
 
 __all__ = [
@@ -317,11 +319,12 @@ class BatchTransform3D(DataClass):
             xyz=math_utils.quaternion_apply_point(q_inv, -self.xyz), quat=q_inv
         )
 
-    def move_local(self, translation: TorchTensor) -> Self:
-        """Move the transformations in the local frame.
+    def translate(self, translation: TorchTensor) -> Self:
+        """Apply translation to the transformations.
 
         Args:
             translation (TorchTensor): The translation to apply to.
+                Shape should be (3,) or (N, 3) where N is the batch size.
 
         """
         t, q = math_utils.frame_transform_combine(
@@ -332,11 +335,12 @@ class BatchTransform3D(DataClass):
         )
         return type(self)(xyz=t, quat=q)
 
-    def rotate_local(self, axis_angle: TorchTensor) -> Self:
-        """Rotate the transformations in the local frame.
+    def rotate(self, axis_angle: TorchTensor) -> Self:
+        """Rotate the transformations by an axis-angle rotation.
 
         Args:
             axis_angle (TorchTensor): The axis-angle rotation to apply to.
+                Shape should be (3,) or (N, 3) where N is the batch size.
 
         """
         q_new = math_utils.axis_angle_to_quaternion(axis_angle)

@@ -18,6 +18,8 @@
 
 from pydantic import BaseModel
 
+__all__ = ["DataClass"]
+
 
 class DataClass(BaseModel):
     """The base data class that extends pydantic's BaseModel.

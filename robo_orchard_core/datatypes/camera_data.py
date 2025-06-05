@@ -19,7 +19,10 @@
 from typing import Literal
 
 from robo_orchard_core.datatypes.dataclass import DataClass
-from robo_orchard_core.datatypes.geometry import BatchPose6D, Pose6D
+from robo_orchard_core.datatypes.geometry import (
+    BatchFrameTransform,
+    FrameTransform,
+)
 from robo_orchard_core.utils.config import TorchTensor
 from robo_orchard_core.utils.torch_utils import Device
 
@@ -35,8 +38,22 @@ class CameraData(DataClass):
     topic: str | None = None
     """The topic of the camera sensor."""
 
-    pose: Pose6D | None = None
-    """The pose of the camera sensor."""
+    frame_id: str | None = None
+    """Coordinate frame ID for the camera sensor.
+
+    This is NOT the frame number or index of the image frame!
+
+    frame_id is typically used to identify the coordinate frame in which the
+    camera data is expressed. It can be useful for visualization or
+    transformation purposes.
+    If not provided, it defaults to None.
+    """
+
+    pose: FrameTransform | None = None
+    """The pose of the camera sensor.
+
+    This is also known as the extrinsic matrix of the camera.
+    """
 
     image_shape: tuple[int, int] | None = None
     """A tuple containing (height, width) of the camera sensor."""
@@ -120,8 +137,25 @@ class BatchCameraData(DataClass):
     topic: str | None = None
     """The topic of the camera sensor."""
 
-    pose: BatchPose6D | None = None
-    """The pose of the camera sensor."""
+    frame_id: str | None = None
+    """Coordinate frame ID for the camera sensor.
+
+    This is NOT the frame number or index of the image frame!
+
+    frame_id is typically used to identify the coordinate frame in which the
+    camera data is expressed. It can be useful for visualization or
+    transformation purposes.
+    If not provided, it defaults to None.
+    """
+
+    # pose: BatchPose6D | None = None
+    # """The pose of the camera sensor."""
+
+    pose: BatchFrameTransform | None = None
+    """Frame transform of the camera sensor.
+
+    This is also known as the extrinsic matrix of the camera.
+    """
 
     image_shape: tuple[int, int] | None = None
     """A tuple containing (height, width) of the camera sensor."""
@@ -162,7 +196,7 @@ class BatchCameraData(DataClass):
     of the image.
     """
 
-    pix_fmt: Literal["rgb", "bgr"] | None = None
+    pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
     """Pixel format."""
 
     @property

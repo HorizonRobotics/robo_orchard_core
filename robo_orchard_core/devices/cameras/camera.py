@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
+
 from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 from typing import Callable
@@ -21,7 +22,10 @@ import torch
 from typing_extensions import Generic, TypeVar
 
 from robo_orchard_core.datatypes.camera_data import BatchCameraData, CameraData
-from robo_orchard_core.datatypes.geometry import BatchPose6D, Pose6D
+from robo_orchard_core.datatypes.geometry import (
+    BatchFrameTransform,
+    FrameTransform,
+)
 from robo_orchard_core.utils.config import (
     ClassConfig,
     ClassInitFromConfigMixin,
@@ -71,14 +75,14 @@ class CameraBase(
 
     @property
     @abstractmethod
-    def pose_global(self) -> Pose6D:
+    def pose_global(self) -> FrameTransform:
         """Get the pose of the camera in the global frame.
 
         Global frame usually refers to the world frame, or the frame that is
         shared by all sensors and objects in the scene.
 
         Returns:
-            Pose6D: The pose of the camera in the global frame.
+            FrameTransform: The pose of the camera in the global frame.
         """
         raise NotImplementedError
 
@@ -161,14 +165,14 @@ class BatchCameraBase(
 
     @property
     @abstractmethod
-    def pose_global(self) -> BatchPose6D:
+    def pose_global(self) -> BatchFrameTransform:
         """Get the pose of the camera in the global frame.
 
         Global frame usually refers to the world frame, or the frame that is
         shared by all sensors and objects in the scene.
 
         Returns:
-            Pose6D: The pose of the camera in the global frame.
+            BatchFrameTransform: The pose of the camera in the global frame.
         """
         raise NotImplementedError
 

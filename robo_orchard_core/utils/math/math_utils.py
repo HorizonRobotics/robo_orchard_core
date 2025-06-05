@@ -109,7 +109,10 @@
 
 """Math utilities for transformations and conversions."""
 
+import functools
 import math
+import warnings
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
@@ -119,6 +122,73 @@ from robo_orchard_core.utils.torch_utils import (
     Device,
     convert_to_tensors_and_broadcast,
 )
+
+
+def torch_jit_compile(f):
+    """Decorator to compile a function with torch.jit.script.
+
+    This decorator will keep the function signature and docstring intact.
+    """
+    if not TYPE_CHECKING:
+        # return functools.wraps(f)(torch.jit.script(f))
+        return torch.jit.script(f)
+    else:
+        return functools.wraps(f)(torch.jit.script(f))
+
+
+@torch_jit_compile
+def _safe_det_3x3(t: torch.Tensor):
+    """Fast determinant calculation for a batch of 3x3 matrices.
+
+    Note, result of this function might not be the same as `torch.det()`.
+    The differences might be in the last significant digit.
+
+    Args:
+        t: Tensor of shape (N, 3, 3).
+
+    Returns:
+        Tensor of shape (N) with determinants.
+    """
+
+    det = (
+        t[..., 0, 0]
+        * (t[..., 1, 1] * t[..., 2, 2] - t[..., 1, 2] * t[..., 2, 1])
+        - t[..., 0, 1]
+        * (t[..., 1, 0] * t[..., 2, 2] - t[..., 2, 0] * t[..., 1, 2])
+        + t[..., 0, 2]
+        * (t[..., 1, 0] * t[..., 2, 1] - t[..., 2, 0] * t[..., 1, 1])
+    )
+
+    return det
+
+
+@torch.no_grad()
+def check_valid_rotation_matrix(R, tol: float = 1e-7) -> None:
+    """Determine if R is a valid rotation matrix by checking it satisfies the following conditions.
+
+    ``RR^T = I and det(R) = 1``
+
+
+    This is a copy of the function from PyTorch3D.
+
+    Args:
+        R: an (N, 3, 3) matrix
+
+    Returns:
+        None
+
+    Emits a warning if R is an invalid rotation matrix.
+    """  # noqa: E501
+    N = R.shape[0]
+    eye = torch.eye(3, dtype=R.dtype, device=R.device)
+    eye = eye.view(1, 3, 3).expand(N, -1, -1)
+    orthogonal = torch.allclose(R.bmm(R.transpose(-2, -1)), eye, atol=tol)
+    det_R = _safe_det_3x3(R)
+    no_distortion = torch.allclose(det_R, torch.ones_like(det_R))
+    if not (orthogonal and no_distortion):
+        msg = "R is not a valid rotation matrix"
+        warnings.warn(msg)
+    return
 
 
 def normalize(
@@ -162,7 +232,7 @@ def quaternion_standardize(quaternions: torch.Tensor) -> torch.Tensor:
     return torch.where(quaternions[..., 0:1] < 0, -quaternions, quaternions)
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_raw_multiply(
     a: torch.Tensor, b: torch.Tensor, batch_mode: bool = False
 ) -> torch.Tensor:
@@ -203,7 +273,7 @@ def quaternion_raw_multiply(
     return ret
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_multiply(
     a: torch.Tensor, b: torch.Tensor, batch_mode: bool = False
 ) -> torch.Tensor:
@@ -229,7 +299,7 @@ def quaternion_multiply(
     return quaternion_standardize(ab)
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_invert(quaternion: torch.Tensor) -> torch.Tensor:
     """Compute the inverse of a quaternion.
 
@@ -251,7 +321,7 @@ def quaternion_invert(quaternion: torch.Tensor) -> torch.Tensor:
     return quaternion * scaling
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_apply_point(
     quaternion: torch.Tensor, point: torch.Tensor, batch_mode: bool = False
 ) -> torch.Tensor:
@@ -283,7 +353,7 @@ def quaternion_apply_point(
     return out[..., 1:]
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_apply_frame(
     quaternion: torch.Tensor, point: torch.Tensor, batch_mode: bool = False
 ):
@@ -307,7 +377,7 @@ def quaternion_apply_frame(
     )
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_left_division(
     qa: torch.Tensor, qb: torch.Tensor
 ) -> torch.Tensor:
@@ -328,7 +398,7 @@ def quaternion_left_division(
     return quaternion_multiply(quaternion_invert(qa), qb)
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_right_division(
     qa: torch.Tensor, qb: torch.Tensor
 ) -> torch.Tensor:
@@ -349,7 +419,7 @@ def quaternion_right_division(
     return quaternion_multiply(qa, quaternion_invert(qb))
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_to_axis_angle(
     quaternions: torch.Tensor, eps: float = 1e-6
 ) -> torch.Tensor:
@@ -387,7 +457,7 @@ def quaternion_to_axis_angle(
     return quaternions[..., 1:] / sin_half_angles_over_angles
 
 
-@torch.jit.script
+@torch_jit_compile
 def quaternion_to_matrix(quaternions: torch.Tensor) -> torch.Tensor:
     """Convert rotations given as quaternions to rotation matrices.
 
@@ -521,7 +591,7 @@ def axis_angle_to_matrix(axis_angle: torch.Tensor) -> torch.Tensor:
     return quaternion_to_matrix(axis_angle_to_quaternion(axis_angle))
 
 
-@torch.jit.script
+@torch_jit_compile
 def matrix_to_quaternion(
     matrix: torch.Tensor, normalize_output: bool = False
 ) -> torch.Tensor:
@@ -596,7 +666,7 @@ def matrix_to_quaternion(
         return quaternion_standardize(normalize(out))
 
 
-@torch.jit.script
+@torch_jit_compile
 def matrix_to_axis_angle(matrix: torch.Tensor) -> torch.Tensor:
     """Convert rotations given as rotation matrices to axis/angle.
 
@@ -674,7 +744,7 @@ def get_axis_and_angle_from_axis_angle(
     return axis, angle
 
 
-@torch.jit.script
+@torch_jit_compile
 def axis_angle_to_quaternion(
     axis_angle: torch.Tensor, eps: float = 1e-6
 ) -> torch.Tensor:
@@ -714,7 +784,7 @@ def axis_angle_to_quaternion(
     return quaternions
 
 
-@torch.jit.script
+@torch_jit_compile
 def euler_angles_to_matrix(
     euler_angles: torch.Tensor, convention: str
 ) -> torch.Tensor:
@@ -862,7 +932,7 @@ def convert_orientation_convention(
         raise ValueError(f"Unsupported conversion from {origin} to {target}.")
 
 
-@torch.jit.script
+@torch_jit_compile
 def _rotation_matrix_from_view_impl(
     camera_position: torch.Tensor,
     at: torch.Tensor,
@@ -980,7 +1050,7 @@ def rotation_matrix_from_view(
     )
 
 
-@torch.jit.script
+@torch_jit_compile
 def skew_symmetric_matrix(vec: torch.Tensor) -> torch.Tensor:
     """Computes the skew-symmetric matrix of a vector.
 
@@ -1021,7 +1091,7 @@ def skew_symmetric_matrix(vec: torch.Tensor) -> torch.Tensor:
     return skew_sym_mat
 
 
-@torch.jit.script
+@torch_jit_compile
 def frame_transform_combine(
     t01: torch.Tensor,
     q01: torch.Tensor,
@@ -1065,7 +1135,7 @@ def frame_transform_combine(
     return t02, q02
 
 
-@torch.jit.script
+@torch_jit_compile
 def frame_transform_subtract(
     t01: torch.Tensor,
     q01: torch.Tensor,
@@ -1108,7 +1178,7 @@ def frame_transform_subtract(
     return t12, q12
 
 
-@torch.jit.script
+@torch_jit_compile
 def pose_diff(
     ta: torch.Tensor,
     qa: torch.Tensor,

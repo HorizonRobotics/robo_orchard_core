@@ -375,8 +375,13 @@ class Transform3D_M:
         """
         return self.get_matrix()[:, :3, 3]
 
-    def get_rotation_quaternion(self) -> torch.Tensor:
+    def get_rotation_quaternion(self, normalize: bool = False) -> torch.Tensor:
         """Returns the rotation component of the transformation as quaternions.
+
+        Args:
+            normalize: If True, the output quaternions will be normalized
+                to unit length. This is useful if the input rotation matrices
+                are not guaranteed to be valid rotation matrices.
 
         Returns:
             A (N, 4) tensor representing the rotation component
@@ -388,7 +393,7 @@ class Transform3D_M:
             # only run the check when PYTORCH3D_CHECK_ROTATION_MATRICES is on.
             _check_valid_rotation_matrix(R, tol=1e-5)
 
-        return matrix_to_quaternion(R)
+        return matrix_to_quaternion(R, normalize_output=normalize)
 
     def get_rotation_axis_angle(self) -> torch.Tensor:
         """Returns the rotation component of the transformation as axis-angle.
