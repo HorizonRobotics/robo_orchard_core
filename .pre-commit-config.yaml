@@ -22,11 +22,11 @@ repos:
       - id: ruff-python
         name: ruff-change-exclude-docs
         description: Check python doc style.
-        entry: ruff check
+        entry: ruff check 
         language: system
         files: \.(py)$
         types: [file, python]
-        args: [--config=pyproject.toml]
+        args: [--fix, --config=pyproject.toml]
 
   - repo: local
     hooks:

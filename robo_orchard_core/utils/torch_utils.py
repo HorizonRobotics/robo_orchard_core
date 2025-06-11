@@ -66,6 +66,8 @@
 
 """Helper functions for working with PyTorch tensors."""
 
+import functools
+
 import torch
 
 Device = str | torch.device
@@ -206,3 +208,27 @@ def convert_to_tensors_and_broadcast(
         args_Nd.append(c.expand(*expand_sizes))
 
     return args_Nd
+
+
+@functools.lru_cache
+def dtype_str2torch(dtype_str: str) -> torch.dtype:
+    """Convert a string representation of a dtype to a torch.dtype."""
+
+    if dtype_str == "float32":
+        return torch.float32
+    elif dtype_str == "float64":
+        return torch.float64
+    elif dtype_str == "int32":
+        return torch.int32
+    elif dtype_str == "int64":
+        return torch.int64
+    elif dtype_str == "uint8":
+        return torch.uint8
+    elif dtype_str == "int8":
+        return torch.int8
+    elif dtype_str == "int16":
+        return torch.int16
+    elif dtype_str == "bool":
+        return torch.bool
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype_str}")

@@ -18,7 +18,9 @@
 
 from typing import Literal
 
-from robo_orchard_core.datatypes.dataclass import DataClass
+import deprecated
+
+from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
     FrameTransform,
@@ -27,12 +29,39 @@ from robo_orchard_core.utils.config import TorchTensor
 from robo_orchard_core.utils.torch_utils import Device
 
 __all___ = [
+    "Distortion",
     "CameraData",
     "BatchCameraData",
 ]
 
 
-class CameraData(DataClass):
+class Distortion(DataClass, TensorToMixin):
+    model: (
+        Literal["plumb_bob", "rational_polynomial", "equidistant"] | None
+    ) = None
+    """The distortion model of the camera.
+
+    If None, no distortion model is applied. The distortion model follows ROS2
+    convention,  see:
+    - http://docs.ros.org/en/api/image_geometry/html/c++/pinhole__camera__model_8cpp.html
+    - http://docs.ros.org/en/rolling/p/camera_calibration/doc/index.html
+
+    """
+
+    coefficients: TorchTensor | None = None
+    """Distortion coefficients of the camera.
+
+    It should be 1D tensor with 4, 5, or 8 elements depending on the
+    distortion model.
+    """
+
+
+@deprecated.deprecated(
+    version="0.2.0",
+    reason="CameraData will be replaced by BatchCameraData for "
+    "simplicity and efficiency. ",
+)
+class CameraData(DataClass, TensorToMixin):
     """Data class for camera sensor data."""
 
     topic: str | None = None
@@ -73,27 +102,37 @@ class CameraData(DataClass):
     For compressed data, the shape is (N, ) where N is the number of bytes.
     """
 
-    distortion_model: (
-        Literal["plumb_bob", "rational_polynomial", "equidistant"] | None
-    ) = None
-    """The distortion model of the camera.
+    distortion: Distortion | None = None
 
-    If None, no distortion model is applied. The distortion model follows ROS2
-    convention,  see:
-    - http://docs.ros.org/en/api/image_geometry/html/c++/pinhole__camera__model_8cpp.html
-    - http://docs.ros.org/en/rolling/p/camera_calibration/doc/index.html
-
-    """
-
-    distorsion_coefficients: TorchTensor | None = None
-    """Distortion coefficients of the camera.
-
-    It should be 1D tensor with 4, 5, or 8 elements depending on the
-    distortion model.
-    """
-
-    pix_fmt: Literal["rgb", "bgr"] | None = None
+    pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
     """Pixel format."""
+
+    @property
+    def distortion_coefficients(self) -> TorchTensor | None:
+        """Get the distortion coefficients of the camera.
+
+        Returns:
+            TorchTensor | None: The distortion coefficients of the camera.
+            If no distortion model is applied, returns None.
+        """
+        if self.distortion is not None:
+            return self.distortion.coefficients
+        return None
+
+    @property
+    def distortion_model(
+        self,
+    ) -> Literal["plumb_bob", "rational_polynomial", "equidistant"] | None:
+        """Get the distortion model of the camera.
+
+        Returns:
+            Literal["plumb_bob", "rational_polynomial", "equidistant"] | None:
+            The distortion model of the camera. If no distortion model is
+            applied, returns None.
+        """
+        if self.distortion is not None:
+            return self.distortion.model
+        return None
 
     def __post_init__(self):
         if self.image_shape is None:
@@ -131,8 +170,13 @@ class CameraData(DataClass):
         )
 
 
-class BatchCameraData(DataClass):
-    """Data class for batched camera sensor data."""
+class BatchCameraData(DataClass, TensorToMixin):
+    """Data class for batched camera sensor data.
+
+    A batch of camera data shares the same image shape, distortion model.
+    The intrinsic matrices and extrinsic matrices (pose) of the cameras
+    can be different.
+    """
 
     topic: str | None = None
     """The topic of the camera sensor."""
@@ -148,15 +192,6 @@ class BatchCameraData(DataClass):
     If not provided, it defaults to None.
     """
 
-    # pose: BatchPose6D | None = None
-    # """The pose of the camera sensor."""
-
-    pose: BatchFrameTransform | None = None
-    """Frame transform of the camera sensor.
-
-    This is also known as the extrinsic matrix of the camera.
-    """
-
     image_shape: tuple[int, int] | None = None
     """A tuple containing (height, width) of the camera sensor."""
 
@@ -166,26 +201,15 @@ class BatchCameraData(DataClass):
     Shape is (B, 3, 3), where B is the batch size.
     """
 
-    distortion_model: (
-        Literal["plumb_bob", "rational_polynomial", "equidistant"] | None
-    ) = None
-    """The distortion model of the camera.
+    distortion: Distortion | None = None
 
-    If None, no distortion model is applied. The distortion model follows ROS2
-    convention,  see:
-    - http://docs.ros.org/en/api/image_geometry/html/c++/pinhole__camera__model_8cpp.html
-    - http://docs.ros.org/en/rolling/p/camera_calibration/doc/index.html
+    # pose: BatchPose6D | None = None
+    # """The pose of the camera sensor."""
 
-    """
+    pose: BatchFrameTransform | None = None
+    """Frame transform of the camera sensor.
 
-    distorsion_coefficients: TorchTensor | None = None
-    """Distortion coefficients of the camera.
-
-    It should be 1D tensor with 4, 5, or 8 elements depending on the
-    distortion model.
-
-    All data in the batch should have the same distortion model and
-    coefficients.
+    This is also known as the extrinsic matrix of the camera.
     """
 
     sensor_data: TorchTensor
@@ -198,6 +222,33 @@ class BatchCameraData(DataClass):
 
     pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
     """Pixel format."""
+
+    @property
+    def distorsion_coefficients(self) -> TorchTensor | None:
+        """Get the distortion coefficients of the camera.
+
+        Returns:
+            TorchTensor | None: The distortion coefficients of the camera.
+            If no distortion model is applied, returns None.
+        """
+        if self.distortion is not None:
+            return self.distortion.coefficients
+        return None
+
+    @property
+    def distortion_model(
+        self,
+    ) -> Literal["plumb_bob", "rational_polynomial", "equidistant"] | None:
+        """Get the distortion model of the camera.
+
+        Returns:
+            Literal["plumb_bob", "rational_polynomial", "equidistant"] | None:
+            The distortion model of the camera. If no distortion model is
+            applied, returns None.
+        """
+        if self.distortion is not None:
+            return self.distortion.model
+        return None
 
     @property
     def batch_size(self) -> int:

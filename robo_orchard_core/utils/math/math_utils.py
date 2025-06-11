@@ -130,7 +130,6 @@ def torch_jit_compile(f):
     This decorator will keep the function signature and docstring intact.
     """
     if not TYPE_CHECKING:
-        # return functools.wraps(f)(torch.jit.script(f))
         return torch.jit.script(f)
     else:
         return functools.wraps(f)(torch.jit.script(f))

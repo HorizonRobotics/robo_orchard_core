@@ -144,14 +144,14 @@ class KinematicChain:
 
         .. code-block:: text
 
-                        ||-----------Frame0--------||
+                            ||--------Frame0--------||
                                                     ||----------Frame0 Children-----||
                                                     ||----------Frame1--------------||
-            [Parent_link0]                             joint1 ->  [link1]
+            [Parent_link0]                          joint1 ->  [link1]
                         \                        /
                             joint0  -->  [link0]
                                                 \
-                                                    joint2  ->   [link2]
+                                                    joint2 ->  [link2]
                                                     ||----------Frame2--------------||
 
         """  # noqa: E501

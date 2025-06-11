@@ -21,7 +21,11 @@ from typing import Callable
 import torch
 from typing_extensions import Generic, TypeVar
 
-from robo_orchard_core.datatypes.camera_data import BatchCameraData, CameraData
+from robo_orchard_core.datatypes.camera_data import (
+    BatchCameraData,
+    CameraData,
+    Distortion,
+)
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
     FrameTransform,
@@ -69,7 +73,7 @@ class CameraBase(
         """Get the intrinsic matrix of the camera.
 
         Returns:
-            CameraData: The intrinsic matrix of the camera.
+            torch.Tensor: The intrinsic matrix of the camera.
         """
         raise NotImplementedError
 
@@ -101,17 +105,50 @@ class CameraBase(
         """
         raise NotImplementedError
 
-    def get_camera_data(self) -> CameraData:
+    @property
+    def distortion(self) -> Distortion | None:
+        """Get the distortion model of the camera.
+
+        User should inherit this method to return the distortion model
+        if it is applied to the camera.
+
+        Returns:
+            Distortion | None: The distortion model of the camera.
+            If no distortion model is applied, returns None.
+        """
+        return None
+
+    @property
+    def tf_parent(self) -> FrameTransform | None:
+        """Get the parent frame transform of the camera.
+
+        User should inherit this method to return the parent frame transform
+        if it is applied to the camera.
+
+        Returns:
+            FrameTransform | None: The parent frame transform of the camera.
+            If no parent frame transform is applied, returns None.
+        """
+        return None
+
+    def get_camera_data(self, tf_global: bool = True) -> CameraData:
         """Get the camera data of the camera.
+
+        Args:
+            tf_global (bool, optional): If True, the pose will be transformed
+                to the global frame. If False, the pose will be in the parent
+                frame. Defaults to True.
 
         Returns:
             CameraData: The camera data.
         """
+        pose = self.pose_global if tf_global else self.tf_parent
         return CameraData(
             intrinsic_matrix=self.intrinsic_matrix,
-            pose=self.pose_global,
+            pose=pose,
             sensor_data=self.sensor_data,
             image_shape=self.image_shape,
+            distortion=self.distortion,
         )
 
 
@@ -131,8 +168,9 @@ class BatchCameraBase(
 ):
     """The base class of a batch of cameras.
 
-    A batch of cameras is a collection of cameras that share the image shape.
-    The intrinsic matrices and poses of the cameras can be different.
+    A batch of cameras is a collection of cameras that share the image shape
+    and distortion model. The intrinsic matrices and poses of the cameras
+    can be different.
 
     """
 
@@ -190,15 +228,51 @@ class BatchCameraBase(
         """
         raise NotImplementedError
 
-    def get_camera_data(self) -> BatchCameraData:
+    @property
+    def distortion(self) -> Distortion | None:
+        """Get the distortion model of the camera.
+
+        User should inherit this method to return the distortion model
+        if it is applied to the camera.
+
+        Returns:
+            Distortion | None: The distortion model of the camera.
+            If no distortion model is applied, returns None.
+        """
+        return None
+
+    @property
+    def tf_parent(self) -> BatchFrameTransform | None:
+        """Get the parent frame transform of the camera.
+
+        User should inherit this method to return the parent frame transform
+        if it is applied to the camera.
+
+        Returns:
+            BatchFrameTransform | None: The parent frame transform of
+                the camera. If no parent frame transform is applied,
+                returns None.
+        """
+        return None
+
+    def get_camera_data(self, tf_global: bool = True) -> BatchCameraData:
         """Get the camera data of the camera.
+
+        Args:
+            tf_global (bool, optional): If True, the pose will be transformed
+                to the global frame. If False, the pose will be in the parent
+                frame. Defaults to True.
 
         Returns:
             CameraData: The camera data.
         """
+
+        pose = self.pose_global if tf_global else self.tf_parent
+
         return BatchCameraData(
             intrinsic_matrices=self.intrinsic_matrices,
-            pose=self.pose_global,
+            pose=pose,
+            distortion=self.distortion,
             sensor_data=self.sensor_data,
             image_shape=self.image_shape,
         )

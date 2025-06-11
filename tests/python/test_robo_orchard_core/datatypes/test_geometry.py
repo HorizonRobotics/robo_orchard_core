@@ -17,8 +17,210 @@
 import pytest
 import torch
 
-from robo_orchard_core.datatypes.geometry import BatchTransform3D
+from robo_orchard_core.datatypes.geometry import (
+    BatchTransform3D,
+    FrameTransform,
+    Pose,
+    Transform3D,
+)
 from robo_orchard_core.utils.math import math_utils
+
+
+class TestTensorToMixin:
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="CUDA NOT AVAILABLE"
+                ),
+            ),
+        ],
+    )
+    def test_tensor_to_mixin(self, device):
+        batch_size = 100
+        q = math_utils.normalize(
+            torch.rand(size=(batch_size, 4), device=device) - 0.5, dim=-1
+        )
+        q = math_utils.quaternion_standardize(q)
+        t = torch.rand(size=(batch_size, 3), device=device) - 0.5
+        batch_transform = BatchTransform3D(xyz=t, quat=q)
+
+        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        target_dtypes = [torch.float32, torch.float64]
+        for target_device in target_devices:
+            for target_dtype in target_dtypes:
+                # Convert to target device and dtype
+                batch_transform = batch_transform.to(
+                    device=target_device, dtype=target_dtype
+                )
+                assert batch_transform.xyz.device == target_device
+                assert batch_transform.quat.device == target_device
+                assert batch_transform.xyz.dtype == target_dtype
+                assert batch_transform.quat.dtype == target_dtype
+
+
+class TestTransform3D:
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="CUDA NOT AVAILABLE"
+                ),
+            ),
+        ],
+    )
+    def test_repeat(self, device):
+        q = math_utils.normalize(
+            torch.rand(size=(4,), device=device) - 0.5, dim=-1
+        )
+        q = math_utils.quaternion_standardize(q)
+        t = torch.rand(size=(3,), device=device) - 0.5
+        transform = Transform3D(xyz=t, quat=q)
+        # Test repeat
+
+        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        for target_device in target_devices:
+            batch_size = 3
+            repeated_transform = transform.repeat(
+                batch_size, device=target_device
+            )
+            assert repeated_transform.xyz.shape == (batch_size, 3)
+            assert repeated_transform.quat.shape == (batch_size, 4)
+            assert repeated_transform.xyz.device == target_device
+            assert repeated_transform.quat.device == target_device
+
+            # Check the values
+            xyz_target_device = torch.tensor(
+                transform.xyz, device=target_device
+            )
+            quat_target_device = torch.tensor(
+                transform.quat, device=target_device
+            )
+
+            for i in range(batch_size):
+                assert torch.allclose(
+                    repeated_transform.xyz[i],
+                    xyz_target_device,
+                    atol=1e-5,
+                )
+                assert torch.allclose(
+                    repeated_transform.quat[i],
+                    quat_target_device,
+                    atol=1e-5,
+                )
+
+
+class TestFrameTransform:
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="CUDA NOT AVAILABLE"
+                ),
+            ),
+        ],
+    )
+    def test_repeat(self, device):
+        q = math_utils.normalize(
+            torch.rand(size=(4,), device=device) - 0.5, dim=-1
+        )
+        q = math_utils.quaternion_standardize(q)
+        t = torch.rand(size=(3,), device=device) - 0.5
+        transform = FrameTransform(
+            xyz=t, quat=q, parent_frame_id="parent", child_frame_id="child"
+        )
+        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        for target_device in target_devices:
+            batch_size = 3
+            repeated_transform = transform.repeat(
+                batch_size, device=target_device
+            )
+            assert repeated_transform.xyz.shape == (batch_size, 3)
+            assert repeated_transform.quat.shape == (batch_size, 4)
+            assert repeated_transform.xyz.device == target_device
+            assert repeated_transform.quat.device == target_device
+            assert (
+                repeated_transform.parent_frame_id == transform.parent_frame_id
+            )
+            assert (
+                repeated_transform.child_frame_id == transform.child_frame_id
+            )
+
+            # Check the values
+            xyz_target_device = torch.tensor(
+                transform.xyz, device=target_device
+            )
+            quat_target_device = torch.tensor(
+                transform.quat, device=target_device
+            )
+
+            for i in range(batch_size):
+                assert torch.allclose(
+                    repeated_transform.xyz[i],
+                    xyz_target_device,
+                    atol=1e-5,
+                )
+                assert torch.allclose(
+                    repeated_transform.quat[i],
+                    quat_target_device,
+                    atol=1e-5,
+                )
+
+
+class TestPose:
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="CUDA NOT AVAILABLE"
+                ),
+            ),
+        ],
+    )
+    def test_repeat(self, device):
+        q = math_utils.normalize(
+            torch.rand(size=(4,), device=device) - 0.5, dim=-1
+        )
+        q = math_utils.quaternion_standardize(q)
+        t = torch.rand(size=(3,), device=device) - 0.5
+        pose = Pose(xyz=t, quat=q, frame_id="pose_frame")
+        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        for target_device in target_devices:
+            batch_size = 3
+            repeated_pose = pose.repeat(batch_size, device=target_device)
+            assert repeated_pose.xyz.shape == (batch_size, 3)
+            assert repeated_pose.quat.shape == (batch_size, 4)
+            assert repeated_pose.xyz.device == target_device
+            assert repeated_pose.quat.device == target_device
+            assert repeated_pose.frame_id == pose.frame_id
+
+            # Check the values
+            xyz_target_device = torch.tensor(pose.xyz, device=target_device)
+            quat_target_device = torch.tensor(pose.quat, device=target_device)
+
+            for i in range(batch_size):
+                assert torch.allclose(
+                    repeated_pose.xyz[i],
+                    xyz_target_device,
+                    atol=1e-5,
+                )
+                assert torch.allclose(
+                    repeated_pose.quat[i],
+                    quat_target_device,
+                    atol=1e-5,
+                )
 
 
 class TestBatchTransform3D:
