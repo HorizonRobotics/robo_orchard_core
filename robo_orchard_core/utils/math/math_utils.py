@@ -162,7 +162,7 @@ def _safe_det_3x3(t: torch.Tensor):
 
 
 @torch.no_grad()
-def check_valid_rotation_matrix(R, tol: float = 1e-7) -> None:
+def check_valid_rotation_matrix(R, tol: float = 1e-7) -> bool:
     """Determine if R is a valid rotation matrix by checking it satisfies the following conditions.
 
     ``RR^T = I and det(R) = 1``
@@ -174,7 +174,7 @@ def check_valid_rotation_matrix(R, tol: float = 1e-7) -> None:
         R: an (N, 3, 3) matrix
 
     Returns:
-        None
+        bool
 
     Emits a warning if R is an invalid rotation matrix.
     """  # noqa: E501
@@ -187,7 +187,8 @@ def check_valid_rotation_matrix(R, tol: float = 1e-7) -> None:
     if not (orthogonal and no_distortion):
         msg = "R is not a valid rotation matrix"
         warnings.warn(msg)
-    return
+        return False
+    return True
 
 
 def normalize(

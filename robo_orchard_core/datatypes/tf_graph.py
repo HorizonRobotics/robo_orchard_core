@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
+
 from typing import Generic, TypeVar
 
 from robo_orchard_core.datatypes.dataclass import DataClass
@@ -25,11 +26,13 @@ NODE_TYPE = TypeVar("NODE_TYPE")
 class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
     """A generic edge graph data structure."""
 
-    graph: dict[str, dict[str, EDGE_TYPE]]
+    edges: dict[str, dict[str, EDGE_TYPE]]
+    """Graph is represented as a set of edges."""
     nodes: dict[str, NODE_TYPE]
+    """The nodes are represented as string dict."""
 
     def __init__(self):
-        self.graph = {}
+        self.edges = {}
         self.nodes = {}
         self._in_degree = {node_id: 0 for node_id in self.nodes}
 
@@ -38,7 +41,7 @@ class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
         if node_id in self.nodes:
             raise ValueError(f"Node {node_id} already exists.")
         self.nodes[node_id] = node
-        self.graph[node_id] = {}
+        self.edges[node_id] = {}
         self._in_degree[node_id] = 0
 
     def _add_edge(self, from_node: str, to_node: str, edge: EDGE_TYPE):
@@ -47,11 +50,11 @@ class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
             raise ValueError(f"From node {from_node} does not exist.")
         if to_node not in self.nodes:
             raise ValueError(f"To node {to_node} does not exist.")
-        if to_node in self.graph[from_node]:
+        if to_node in self.edges[from_node]:
             raise ValueError(
                 f"Edge from {from_node} to {to_node} already exists."
             )
-        self.graph[from_node][to_node] = edge
+        self.edges[from_node][to_node] = edge
         self._in_degree[to_node] += 1
 
     def connected_subgraph_number(self) -> int:
@@ -98,7 +101,7 @@ class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
             current_node = queue.pop(0)
             if current_node == dst_node_id:
                 break
-            for neighbor in self.graph[current_node]:
+            for neighbor in self.edges[current_node]:
                 if neighbor not in visited:
                     visited.add(neighbor)
                     parent_map[neighbor] = current_node
@@ -115,7 +118,7 @@ class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
         while current_node is not None:
             parent = parent_map[current_node]
             if parent is not None:
-                edge = self.graph[parent].get(current_node)
+                edge = self.edges[parent].get(current_node)
                 if edge is not None:
                     path.append(edge)
             current_node = parent
@@ -158,8 +161,8 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             )
 
     def get_tf(
-        self, parent_frame_id: str, child_frame_id: str
-    ) -> BatchFrameTransform | None:
+        self, parent_frame_id: str, child_frame_id: str, compose: bool = True
+    ) -> BatchFrameTransform | list[BatchFrameTransform] | None:
         """Get the transformation between two frames.
 
         Args:
@@ -167,8 +170,12 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             child_frame_id (str): The ID of the child frame.
 
         Returns:
-            BatchFrameTransform | None: The transformation between
-                the two frames, or None if no such transformation exists.
+            BatchFrameTransform | list[BatchFrameTransform] | None: The
+            transformation between the two frames. If compose is True, it
+            returns a single BatchFrameTransform object. If compose is False,
+            it returns a list of BatchFrameTransform objects representing the
+            path from the parent frame to the child frame. If no path exists,
+            it returns None.
         """
         if (
             parent_frame_id not in self.nodes
@@ -183,7 +190,10 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             return None
         assert len(path) > 0, "Path should not be empty."
 
-        if len(path) == 1:
-            return path[0]
+        if compose:
+            if len(path) == 1:
+                return path[0]
+            else:
+                return path[0].compose(*path[1:])
         else:
-            return path[0].compose(*path[1:])
+            return path

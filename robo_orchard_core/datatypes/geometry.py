@@ -527,6 +527,37 @@ class BatchPose(BatchTransform3D):
     def orientation(self, value: TorchTensor):
         self.quat = value
 
+    def as_BatchFrameTransform(
+        self, child_frame_id: str, parent_frame_id: str | None = None
+    ) -> BatchFrameTransform:
+        """Convert the BatchPose to BatchFrameTransform.
+
+        Args:
+            child_frame_id (str): The coordinate frame ID of the child frame.
+            parent_frame_id (str | None, optional): The coordinate frame ID of
+                the parent frame. If None, it will use the frame_id of the
+                BatchPose. Defaults to None.
+
+        Returns:
+            BatchFrameTransform: A BatchFrameTransform object with the same
+                position and orientation as the BatchPose.
+        """
+
+        if parent_frame_id is None and self.frame_id is None:
+            raise ValueError(
+                "Either parent_frame_id or self.frame_id must be specified."
+            )
+        if parent_frame_id is None:
+            parent_frame_id = self.frame_id
+        assert parent_frame_id is not None
+
+        return BatchFrameTransform(
+            xyz=self.xyz,
+            quat=self.quat,
+            parent_frame_id=parent_frame_id,
+            child_frame_id=child_frame_id,
+        )
+
 
 @deprecated.deprecated(
     reason="FrameTransform will be replaced by BatchFrameTransform for "
@@ -603,7 +634,7 @@ class BatchFrameTransform(BatchTransform3D):
             if other.parent_frame_id != cur_child_frame_id:
                 raise ValueError(
                     f"Parent frame ID of {other.parent_frame_id} does not match "  # noqa: E501
-                    f"the current child frame ID {cur_child_frame_id}."
+                    f"the previous child frame ID {cur_child_frame_id}."
                 )
             cur_child_frame_id = other.child_frame_id
         super_ret = super().compose(*others)
@@ -612,6 +643,19 @@ class BatchFrameTransform(BatchTransform3D):
             child_frame_id=cur_child_frame_id,
             xyz=super_ret.xyz,
             quat=super_ret.quat,
+        )
+
+    def as_BatchPose(self) -> BatchPose:
+        """Convert the BatchFrameTransform to BatchPose.
+
+        Returns:
+            BatchPose: A BatchPose object with the same
+                position and orientation as the BatchFrameTransform.
+        """
+        return BatchPose(
+            xyz=self.xyz,
+            quat=self.quat,
+            frame_id=self.parent_frame_id,
         )
 
 
