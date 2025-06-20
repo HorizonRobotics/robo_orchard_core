@@ -379,6 +379,40 @@ class TestBatchTransform3D:
             batch_transform_02.xyz, batch_transform_02_.xyz, atol=1e-5
         )
 
+    @pytest.mark.parametrize(
+        "device",
+        [
+            pytest.param("cpu"),
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="CUDA NOT AVAILABLE"
+                ),
+            ),
+        ],
+    )
+    def test_inverse(self, device):
+        batch_size = 100
+        q = math_utils.normalize(
+            torch.rand(size=(batch_size, 4), device=device) - 0.5, dim=-1
+        )
+        q = math_utils.quaternion_standardize(q)
+        t = torch.rand(size=(batch_size, 3), device=device) - 0.5
+        batch_transform = BatchTransform3D(xyz=t, quat=q)
+        batch_transform_m = batch_transform.as_Transform3D_M()
+        inv_batch_transform_m = batch_transform_m.inverse(True)
+        inv_batch_transform = batch_transform.inverse()
+        assert torch.allclose(
+            inv_batch_transform.xyz,
+            inv_batch_transform_m.get_translation(),
+            atol=1e-7,
+        )
+        assert torch.allclose(
+            inv_batch_transform.quat,
+            inv_batch_transform_m.get_rotation_quaternion(),
+            atol=1e-7,
+        )
+
 
 if __name__ == "__main__":
     pytest.main(["-s", __file__])

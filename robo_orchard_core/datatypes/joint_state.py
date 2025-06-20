@@ -21,6 +21,7 @@ from typing import Any, Sequence
 import torch
 
 from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
+from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
 
 
@@ -28,22 +29,22 @@ class BatchJointsState(DataClass, TensorToMixin):
     position: TorchTensor | None = None
     """The position of the joint in radians or meters.
 
-    It should be a tensor of shape (N, D), where D is the number of joints and
-    N is the batch size.
+    It should be a tensor of shape (B, D), where D is the number of joints and
+    B is the batch size.
     """
 
     velocity: TorchTensor | None = None
     """The velocity of the joint in radians or meters per second.
 
-    It should be a tensor of shape (N, D), where D is the number of joints and
-    N is the batch size.
+    It should be a tensor of shape (B, D), where D is the number of joints and
+    B is the batch size.
     """
 
     effort: TorchTensor | None = None
     """The effort/torque applied to the joint in Newton-meters or Newtons.
 
-    It should be a tensor of shape (N, D), where D is the number of joints and
-    N is the batch size.
+    It should be a tensor of shape (B, D), where D is the number of joints and
+    B is the batch size.
     """
 
     names: list[str] | None = None
@@ -58,8 +59,19 @@ class BatchJointsState(DataClass, TensorToMixin):
     The size of the names list should match the number of joints D.
     """
 
+    timestamps: list[int] | None = None
+    """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
+
     def __post_init__(self):
         self.check_shape()
+        if (
+            self.timestamps is not None
+            and len(self.timestamps) != self.batch_size
+        ):
+            raise ValueError(
+                "The length of timestamps must match the batch size. "
+                f"Expected {self.batch_size}, got {len(self.timestamps)}."
+            )
 
     @property
     def batch_size(self) -> int:
@@ -207,5 +219,12 @@ class BatchJointsState(DataClass, TensorToMixin):
             else:
                 raise ValueError("dim must be 0, -1, or 1.")
         attr_dict["names"] = ret_names
+
+        # process timestamps
+        timestamps = [self.timestamps] + [other.timestamps for other in others]
+        timestamp_condat_dim = "row" if dim == 0 else "col"
+        attr_dict["timestamps"] = concat_timestamps(
+            timestamps, concat_dim=timestamp_condat_dim
+        )
 
         return BatchJointsState(**attr_dict)

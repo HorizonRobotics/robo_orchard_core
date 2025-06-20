@@ -16,9 +16,10 @@
 
 """Data classes for camera sensor data."""
 
-from typing import Literal
+from typing import Callable, Literal
 
 import deprecated
+import torch
 
 from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
 from robo_orchard_core.datatypes.geometry import (
@@ -31,7 +32,9 @@ from robo_orchard_core.utils.torch_utils import Device
 __all___ = [
     "Distortion",
     "CameraData",
+    "BatchCameraInfo",
     "BatchCameraData",
+    "BatchCameraDataEncoded",
 ]
 
 
@@ -150,7 +153,7 @@ class CameraData(DataClass, TensorToMixin):
         Pose6D describes the transformation from the camera frame to the
         world frame, while the extrinsic matrix describes the transformation
         from the world frame to the camera frame, which is the inverse of
-        the pose transformation (cam2world).
+        the pose transformation (cam w.r.t world).
 
         The extrinsic matrix is a 4x4 matrix:
 
@@ -170,8 +173,8 @@ class CameraData(DataClass, TensorToMixin):
         )
 
 
-class BatchCameraData(DataClass, TensorToMixin):
-    """Data class for batched camera sensor data.
+class BatchCameraInfo(DataClass, TensorToMixin):
+    """Data class for batched camera sensor data information.
 
     A batch of camera data shares the same image shape, distortion model.
     The intrinsic matrices and extrinsic matrices (pose) of the cameras
@@ -212,17 +215,6 @@ class BatchCameraData(DataClass, TensorToMixin):
     This is also known as the extrinsic matrix of the camera.
     """
 
-    sensor_data: TorchTensor
-    """The sensor data from all cameras.
-
-    Shape is (B, H, W, C) for raw data, where B is the batch size, C is the
-    number of channels, H is the height of the image, and W is the width
-    of the image.
-    """
-
-    pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
-    """Pixel format."""
-
     @property
     def distorsion_coefficients(self) -> TorchTensor | None:
         """Get the distortion coefficients of the camera.
@@ -250,24 +242,13 @@ class BatchCameraData(DataClass, TensorToMixin):
             return self.distortion.model
         return None
 
-    @property
-    def batch_size(self) -> int:
-        """Get the batch size.
-
-        The batch size is the number of cameras in the batch.
-
-        Returns:
-            int: The batch size.
-        """
-        return self.sensor_data.shape[0]
-
     def get_extrinsic_matrix(self) -> TorchTensor:
         """Get the extrinsic matrix of the cameras.
 
         Pose6D describes the transformation from the camera frame to the
         world frame, while the extrinsic matrix describes the transformation
         from the world frame to the camera frame, which is the inverse of
-        the pose transformation (cam2world).
+        the pose transformation (cam w.r.t world).
 
         The extrinsic matrix is a Bx4x4 matrix:
 
@@ -285,3 +266,143 @@ class BatchCameraData(DataClass, TensorToMixin):
 
         assert self.pose is not None
         return self.pose.inverse().as_Transform3D_M().get_matrix()
+
+
+class BatchCameraData(BatchCameraInfo):
+    """Data class for batched camera sensor data.
+
+    BatchCameraData extends BatchCameraDataInfo to include the actual
+    sensor data in tensor format.
+
+    A batch of camera data shares the same image shape, distortion model.
+    The intrinsic matrices and extrinsic matrices (pose) of the cameras
+    can be different.
+
+    """
+
+    sensor_data: TorchTensor
+    """The sensor data from all cameras.
+
+    Shape is (B, H, W, C) for raw data, where B is the batch size, C is the
+    number of channels, H is the height of the image, and W is the width
+    of the image.
+    """
+
+    pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
+    """Pixel format."""
+
+    timestamps: list[int] | None = None
+    """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        if (
+            self.timestamps is not None
+            and len(self.timestamps) != self.batch_size
+        ):
+            raise ValueError(
+                "The length of timestamps must match the batch size. "
+                f"Expected {self.batch_size}, got {len(self.timestamps)}."
+            )
+
+    @property
+    def batch_size(self) -> int:
+        """Get the batch size.
+
+        The batch size is the number of cameras in the batch.
+
+        Returns:
+            int: The batch size.
+        """
+        return self.sensor_data.shape[0]
+
+
+class BatchCameraDataEncoded(BatchCameraInfo):
+    """Data class for batched compressed camera sensor data.
+
+    BatchCameraCompressedData extends BatchCameraDataInfo to include the
+    actual compressed sensor data in tensor format.
+
+    A batch of camera data shares the same image shape, distortion model.
+    The intrinsic matrices and extrinsic matrices (pose) of the cameras
+    can be different.
+    """
+
+    sensor_data: list[bytes]
+    """The sensor data in compressed bytes."""
+
+    format: Literal["jpeg", "png"]
+    """The format of the compressed sensor data."""
+
+    timestamps: list[int] | None = None
+    """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        if (
+            self.timestamps is not None
+            and len(self.timestamps) != self.batch_size
+        ):
+            raise ValueError(
+                "The length of timestamps must match the batch size. "
+                f"Expected {self.batch_size}, got {len(self.timestamps)}."
+            )
+
+    @property
+    def batch_size(self) -> int:
+        """Get the batch size.
+
+        The batch size is the number of cameras in the batch.
+
+        Returns:
+            int: The batch size.
+        """
+        return len(self.sensor_data)
+
+    def decode(
+        self,
+        decoder: Callable[[bytes, str], TorchTensor],
+        pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None,
+        device: Device = "cpu",
+    ) -> BatchCameraData:
+        """Decode the compressed sensor data to a BatchCameraData.
+
+        Args:
+            decoder (Callable[[bytes, str], TorchTensor]): The decoder
+                function to decode the compressed data. It should take
+                a byte string and the format as input and return a tensor.
+            pix_fmt (Literal["rgb", "bgr", "gray", "depth"] | None, optional):
+                The pixel format of the decoded data. Defaults to None.
+            device (Device, optional): The device to put the decoded data on.
+                Defaults to "cpu".
+
+        Returns:
+            BatchCameraData: The decoded camera data.
+        """
+        decoded_data = [
+            decoder(data, self.format) for data in self.sensor_data
+        ]
+        sensor_data = torch.stack(decoded_data, dim=0).to(device)
+        image_shape = self.image_shape
+        if image_shape is None:
+            image_shape = (sensor_data.shape[1], sensor_data.shape[2])
+        else:
+            if image_shape != (sensor_data.shape[1], sensor_data.shape[2]):
+                raise ValueError(
+                    "The image shape of the decoded data does not match "
+                    "the expected image shape. "
+                    f"Expected {self.image_shape}, got "
+                    f"({sensor_data.shape[1]}, {sensor_data.shape[2]})"
+                )
+
+        return BatchCameraData(
+            topic=self.topic,
+            frame_id=self.frame_id,
+            image_shape=image_shape,
+            intrinsic_matrices=self.intrinsic_matrices,
+            distortion=self.distortion,
+            pose=self.pose,
+            sensor_data=sensor_data,
+            pix_fmt=pix_fmt,
+            timestamps=self.timestamps,
+        )

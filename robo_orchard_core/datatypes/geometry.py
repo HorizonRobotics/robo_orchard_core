@@ -165,6 +165,9 @@ class BatchTransform3D(DataClass, TensorToMixin):
 
     Shape is (N, 4) where N is the batch size."""
 
+    timestamps: list[int] | None = None
+    """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
+
     @classmethod
     def identity(
         cls,
@@ -231,6 +234,15 @@ class BatchTransform3D(DataClass, TensorToMixin):
             self.quat = self.quat[None]
 
         self.check_shape()
+
+        if (
+            self.timestamps is not None
+            and len(self.timestamps) != self.batch_size
+        ):
+            raise ValueError(
+                "The length of timestamps must match the batch size. "
+                f"Expected {self.batch_size}, got {len(self.timestamps)}."
+            )
 
     @property
     def batch_size(self) -> int:
@@ -395,7 +407,9 @@ class BatchTransform3D(DataClass, TensorToMixin):
         )
         return type(self)(xyz=t, quat=q)
 
-    def repeat(self, batch_size: int) -> BatchTransform3D:
+    def repeat(
+        self, batch_size: int, timestamps: list[int] | None = None
+    ) -> BatchTransform3D:
         """Repeat the transformation with batch size 1 to batch size N.
 
         Args:
@@ -411,9 +425,16 @@ class BatchTransform3D(DataClass, TensorToMixin):
 
         xyz = self.xyz
         quat = self.quat
+        if timestamps is not None and len(timestamps) != batch_size:
+            raise ValueError(
+                f"The number of timestamps {len(timestamps)} must match "
+                f"the batch size {batch_size}."
+            )
+
         return BatchTransform3D(
             xyz=xyz.repeat(batch_size, 1),
             quat=quat.repeat(batch_size, 1),
+            timestamps=timestamps,
         )
 
 
@@ -558,6 +579,26 @@ class BatchPose(BatchTransform3D):
             child_frame_id=child_frame_id,
         )
 
+    def inverse(self, frame_id: str | None = None) -> Self:
+        """Get the inverse of the transformations.
+
+        Args:
+            frame_id (str | None, optional): The coordinate frame ID of the
+                inverse pose. This argument is required if the current
+                BatchPose has a frame_id. Defaults to None.
+
+        Returns:
+            Self: A new object with the inverse transformations.
+        """
+        if self.frame_id is not None and frame_id is None:
+            raise ValueError(
+                "If current BatchPose has a frame_id, "
+                "you must specify the frame_id for the inverse."
+            )
+
+        p = super().inverse()
+        return type(self)(frame_id=frame_id, **p.__dict__)
+
 
 @deprecated.deprecated(
     reason="FrameTransform will be replaced by BatchFrameTransform for "
@@ -610,7 +651,9 @@ class BatchFrameTransform(BatchTransform3D):
     child_frame_id: str
     """The coordinate frame ID of the child frame."""
 
-    def repeat(self, batch_size: int) -> BatchFrameTransform:
+    def repeat(
+        self, batch_size: int, timestamps: list[int] | None = None
+    ) -> BatchFrameTransform:
         """Repeat the transformation to create a batch of transformations.
 
         Args:
@@ -620,10 +663,11 @@ class BatchFrameTransform(BatchTransform3D):
             BatchFrameTransform: A batch of transformations with the same
                 parent and child frames.
         """
-        parent_impl = super().repeat(batch_size)
+        parent_impl = super().repeat(batch_size, timestamps=timestamps)
         return BatchFrameTransform(
             xyz=parent_impl.xyz,
             quat=parent_impl.quat,
+            timestamps=parent_impl.timestamps,
             parent_frame_id=self.parent_frame_id,
             child_frame_id=self.child_frame_id,
         )
@@ -656,6 +700,19 @@ class BatchFrameTransform(BatchTransform3D):
             xyz=self.xyz,
             quat=self.quat,
             frame_id=self.parent_frame_id,
+        )
+
+    def inverse(self) -> Self:
+        """Get the inverse of the transformations.
+
+        Returns:
+            Self: A new object with the inverse transformations.
+        """
+        p = super().inverse()
+        return type(self)(
+            parent_frame_id=self.child_frame_id,
+            child_frame_id=self.parent_frame_id,
+            **p.__dict__,
         )
 
 
