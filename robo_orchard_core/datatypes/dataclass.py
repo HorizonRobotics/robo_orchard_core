@@ -47,6 +47,9 @@ class DataClass(BaseModel):
         arbitrary_types_allowed=True,
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def __post_init__(self):
         """Hack to replace __post_init__ in configclass."""
         pass

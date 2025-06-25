@@ -16,7 +16,9 @@
 
 """Data classes for camera sensor data."""
 
-from typing import Callable, Literal
+from __future__ import annotations
+import copy
+from typing import Callable, Literal, Sequence
 
 import deprecated
 import torch
@@ -26,6 +28,7 @@ from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
     FrameTransform,
 )
+from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
 from robo_orchard_core.utils.torch_utils import Device
 
@@ -57,6 +60,34 @@ class Distortion(DataClass, TensorToMixin):
     It should be 1D tensor with 4, 5, or 8 elements depending on the
     distortion model.
     """
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Distortion):
+            return NotImplemented
+        # if coefficients is None for one of the distortion models, we cannot
+        # compare the coefficients
+        ret = self.model == other.model
+        # case: only one of the distortion models has coefficients
+        if [self.coefficients, other.coefficients].count(None) == 1:
+            return False
+        # case: both distortion models have coefficients
+        if self.coefficients is not None and other.coefficients is not None:
+            ret &= torch.equal(self.coefficients, other.coefficients)
+        # case: both distortion models have no coefficients just ignore
+        return ret
+
+    def copy(self) -> Distortion:
+        """Copy the distortion model.
+
+        Returns:
+            Distortion: A copy of the distortion model.
+        """
+        return Distortion(
+            model=self.model,
+            coefficients=self.coefficients.clone()
+            if self.coefficients is not None
+            else None,
+        )
 
 
 @deprecated.deprecated(
@@ -206,9 +237,6 @@ class BatchCameraInfo(DataClass, TensorToMixin):
 
     distortion: Distortion | None = None
 
-    # pose: BatchPose6D | None = None
-    # """The pose of the camera sensor."""
-
     pose: BatchFrameTransform | None = None
     """Frame transform of the camera sensor.
 
@@ -267,6 +295,69 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         assert self.pose is not None
         return self.pose.inverse().as_Transform3D_M().get_matrix()
 
+    def concat(self, others: Sequence[BatchCameraInfo]) -> BatchCameraInfo:
+        """Concatenate two BatchCameraInfo objects.
+
+        Args:
+            others: Sequence[BatchCameraInfo]: The other BatchCameraInfo
+                objects to concatenate with.
+
+        Returns:
+            BatchCameraInfo: The concatenated BatchCameraInfo object.
+        """
+        for topic in [other.topic for other in others]:
+            if topic != self.topic:
+                raise ValueError(
+                    "All BatchCameraInfo objects must have the same topic."
+                )
+        for frame_id in [other.frame_id for other in others]:
+            if frame_id != self.frame_id:
+                raise ValueError(
+                    "All BatchCameraInfo objects must have the same frame_id."
+                )
+        for image_shape in [other.image_shape for other in others]:
+            if image_shape != self.image_shape:
+                raise ValueError(
+                    "All BatchCameraInfo objects must have the same "
+                    "image shape."
+                )
+        for distortion in [other.distortion for other in others]:
+            if distortion != self.distortion:
+                raise ValueError(
+                    "All BatchCameraInfo objects must have the same"
+                    " distortion."
+                )
+
+        for intrinsic_matrix in [other.intrinsic_matrices for other in others]:
+            if [intrinsic_matrix, self.intrinsic_matrices].count(None) == 1:
+                raise ValueError(
+                    "All BatchCameraInfo objects must have the same "
+                    "intrinsic matrix type. "
+                )
+        intrinsic_matrices = (
+            torch.cat(
+                [self.intrinsic_matrices]
+                + [other.intrinsic_matrices for other in others],  # type: ignore
+                dim=0,
+            )
+            if self.intrinsic_matrices is not None
+            else None
+        )
+        pose = (
+            self.pose.concat([other.pose for other in others])  # type: ignore
+            if self.pose is not None
+            else None
+        )
+
+        return BatchCameraInfo(
+            topic=self.topic,
+            frame_id=self.frame_id,
+            image_shape=copy.copy(self.image_shape),
+            intrinsic_matrices=intrinsic_matrices,
+            distortion=self.distortion.copy() if self.distortion else None,
+            pose=pose,
+        )
+
 
 class BatchCameraData(BatchCameraInfo):
     """Data class for batched camera sensor data.
@@ -315,6 +406,28 @@ class BatchCameraData(BatchCameraInfo):
             int: The batch size.
         """
         return self.sensor_data.shape[0]
+
+    def concat(self, others: Sequence[BatchCameraData]) -> BatchCameraData:
+        # check pix_fmt
+        for pix_fmt in [other.pix_fmt for other in others]:
+            if pix_fmt != self.pix_fmt:
+                raise ValueError(
+                    "All BatchCameraData objects must have the same pix_fmt."
+                )
+        # concat sensor_data:
+        super_ret = super().concat(others)
+
+        return BatchCameraData(
+            sensor_data=torch.cat(
+                [self.sensor_data] + [other.sensor_data for other in others],  # type: ignore
+                dim=0,
+            ),
+            pix_fmt=copy.copy(self.pix_fmt),
+            timestamps=concat_timestamps(
+                [self.timestamps] + [other.timestamps for other in others],
+            ),
+            **super_ret.__dict__,
+        )
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):
@@ -405,4 +518,29 @@ class BatchCameraDataEncoded(BatchCameraInfo):
             sensor_data=sensor_data,
             pix_fmt=pix_fmt,
             timestamps=self.timestamps,
+        )
+
+    def concat(
+        self, others: Sequence[BatchCameraDataEncoded]
+    ) -> BatchCameraDataEncoded:
+        # check pix_fmt
+        for format in [other.format for other in others]:
+            if format != self.format:
+                raise ValueError(
+                    "All BatchCameraDataEncoded objects must have the "
+                    "same format."
+                )
+        # concat sensor_data:
+        super_ret = super().concat(others)
+
+        return BatchCameraDataEncoded(
+            sensor_data=torch.cat(
+                [self.sensor_data] + [other.sensor_data for other in others],  # type: ignore
+                dim=0,
+            ),
+            format=copy.copy(self.format),
+            timestamps=concat_timestamps(
+                [self.timestamps] + [other.timestamps for other in others],
+            ),
+            **super_ret.__dict__,
         )

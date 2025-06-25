@@ -17,6 +17,7 @@
 """The geometry dataclass for 3D transformations and poses."""
 
 from __future__ import annotations
+from typing import Sequence
 
 import deprecated
 import torch
@@ -24,6 +25,7 @@ from pydantic import AliasChoices, Field
 from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
+from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
 from robo_orchard_core.utils.math import (
     CoordConventionType,
@@ -437,6 +439,26 @@ class BatchTransform3D(DataClass, TensorToMixin):
             timestamps=timestamps,
         )
 
+    def concat(self, others: Sequence[BatchTransform3D]) -> BatchTransform3D:
+        """Concatenate two BatchTransform3D objects along batch dimension.
+
+        Args:
+            other (BatchTransform3D): The other BatchTransform3D
+                to concatenate.
+
+        Returns:
+            BatchTransform3D: A new BatchTransform3D with concatenated data.
+        """
+        return BatchTransform3D(
+            xyz=torch.cat([self.xyz] + [other.xyz for other in others], dim=0),
+            quat=torch.cat(
+                [self.quat] + [other.quat for other in others], dim=0
+            ),
+            timestamps=concat_timestamps(
+                [self.timestamps] + [other.timestamps for other in others]
+            ),
+        )
+
 
 @deprecated.deprecated(
     reason="Pose will be replaced by BatchPose for simplicity and efficiency.",
@@ -599,6 +621,27 @@ class BatchPose(BatchTransform3D):
         p = super().inverse()
         return type(self)(frame_id=frame_id, **p.__dict__)
 
+    def concat(self, others: list[BatchPose]) -> BatchPose:
+        """Concatenate two BatchPose objects along batch dimension.
+
+        Args:
+            other (BatchPose): The other BatchPose to concatenate.
+
+        Returns:
+            BatchPose: A new BatchPose with concatenated data.
+        """
+        # check that frame id is all None or all the same
+        for frame_id in [other.frame_id for other in others]:
+            if frame_id != self.frame_id:
+                raise ValueError(
+                    "All BatchPose objects must have the same frame_id."
+                )
+        super_ret = super().concat(others)
+        return BatchPose(
+            frame_id=self.frame_id,
+            **super_ret.__dict__,
+        )
+
 
 @deprecated.deprecated(
     reason="FrameTransform will be replaced by BatchFrameTransform for "
@@ -713,6 +756,39 @@ class BatchFrameTransform(BatchTransform3D):
             parent_frame_id=self.child_frame_id,
             child_frame_id=self.parent_frame_id,
             **p.__dict__,
+        )
+
+    def concat(
+        self, others: Sequence[BatchFrameTransform]
+    ) -> BatchFrameTransform:
+        """Concatenate two BatchFrameTransform objects along batch dimension.
+
+        Args:
+            other (BatchFrameTransform): The other BatchFrameTransform
+                to concatenate.
+
+        Returns:
+            BatchFrameTransform: A new BatchFrameTransform with concatenated
+                data.
+        """
+        # check that frame id is all None or all the same
+        for frame_id in [other.parent_frame_id for other in others]:
+            if frame_id != self.parent_frame_id:
+                raise ValueError(
+                    "All BatchFrameTransform objects must have the same "
+                    "parent_frame_id."
+                )
+        for frame_id in [other.child_frame_id for other in others]:
+            if frame_id != self.child_frame_id:
+                raise ValueError(
+                    "All BatchFrameTransform objects must have the same "
+                    "child_frame_id."
+                )
+        super_ret = super().concat(others)
+        return BatchFrameTransform(
+            parent_frame_id=self.parent_frame_id,
+            child_frame_id=self.child_frame_id,
+            **super_ret.__dict__,
         )
 
 
