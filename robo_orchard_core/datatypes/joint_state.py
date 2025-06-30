@@ -73,20 +73,31 @@ class BatchJointsState(DataClass, TensorToMixin):
                 f"Expected {self.batch_size}, got {len(self.timestamps)}."
             )
 
+    def __find_any_tensor(self) -> TorchTensor | None:
+        if self.position is not None:
+            return self.position
+        elif self.velocity is not None:
+            return self.velocity
+        elif self.effort is not None:
+            return self.effort
+        return None
+
+    @property
+    def joint_num(self) -> int:
+        """Get the number of joints in the joint state."""
+
+        cur_tensor = self.__find_any_tensor()
+        if cur_tensor is None:
+            raise ValueError(
+                "At least one of position, velocity, or effort must be set."
+            )
+        return cur_tensor.shape[1]
+
     @property
     def batch_size(self) -> int:
         """Get the batch size of the joint state."""
 
-        def find_tensor():
-            if self.position is not None:
-                return self.position
-            elif self.velocity is not None:
-                return self.velocity
-            elif self.effort is not None:
-                return self.effort
-            return None
-
-        cur_tensor = find_tensor()
+        cur_tensor = self.__find_any_tensor()
         if cur_tensor is None:
             raise ValueError(
                 "At least one of position, velocity, or effort must be set."

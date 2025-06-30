@@ -243,6 +243,16 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     This is also known as the extrinsic matrix of the camera.
     """
 
+    def __post_init__(self):
+        if self.intrinsic_matrices is not None and self.pose is not None:
+            if self.intrinsic_matrices.shape[0] != self.pose.batch_size:
+                raise ValueError(
+                    "The batch size of intrinsic matrices must match the "
+                    "batch size of pose. "
+                    f"Expected {self.pose.batch_size}, got "
+                    f"{self.intrinsic_matrices.shape[0]}."
+                )
+
     @property
     def distorsion_coefficients(self) -> TorchTensor | None:
         """Get the distortion coefficients of the camera.
@@ -318,14 +328,12 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         for image_shape in [other.image_shape for other in others]:
             if image_shape != self.image_shape:
                 raise ValueError(
-                    "All BatchCameraInfo objects must have the same "
-                    "image shape."
+                    "All BatchCameraInfo objects must have the same image shape."  # noqa: E501
                 )
         for distortion in [other.distortion for other in others]:
             if distortion != self.distortion:
                 raise ValueError(
-                    "All BatchCameraInfo objects must have the same"
-                    " distortion."
+                    "All BatchCameraInfo objects must have the same distortion."  # noqa: E501
                 )
 
         for intrinsic_matrix in [other.intrinsic_matrices for other in others]:
@@ -395,6 +403,22 @@ class BatchCameraData(BatchCameraInfo):
                 "The length of timestamps must match the batch size. "
                 f"Expected {self.batch_size}, got {len(self.timestamps)}."
             )
+        if self.pose is not None and self.pose.batch_size != self.batch_size:
+            raise ValueError(
+                "The batch size of pose must match the batch size of "
+                "sensor data. "
+                f"Expected {self.batch_size}, got {self.pose.batch_size}."
+            )
+        if (
+            self.intrinsic_matrices is not None
+            and self.intrinsic_matrices.shape[0] != self.batch_size
+        ):
+            raise ValueError(
+                "The batch size of intrinsic matrices must match the "
+                "batch size of sensor data. "
+                f"Expected {self.batch_size}, got "
+                f"{self.intrinsic_matrices.shape[0]}."
+            )
 
     @property
     def batch_size(self) -> int:
@@ -459,6 +483,22 @@ class BatchCameraDataEncoded(BatchCameraInfo):
             raise ValueError(
                 "The length of timestamps must match the batch size. "
                 f"Expected {self.batch_size}, got {len(self.timestamps)}."
+            )
+        if self.pose is not None and self.pose.batch_size != self.batch_size:
+            raise ValueError(
+                "The batch size of pose must match the batch size of "
+                "sensor data. "
+                f"Expected {self.batch_size}, got {self.pose.batch_size}."
+            )
+        if (
+            self.intrinsic_matrices is not None
+            and self.intrinsic_matrices.shape[0] != self.batch_size
+        ):
+            raise ValueError(
+                "The batch size of intrinsic matrices must match the "
+                "batch size of sensor data. "
+                f"Expected {self.batch_size}, got "
+                f"{self.intrinsic_matrices.shape[0]}."
             )
 
     @property
@@ -527,8 +567,7 @@ class BatchCameraDataEncoded(BatchCameraInfo):
         for format in [other.format for other in others]:
             if format != self.format:
                 raise ValueError(
-                    "All BatchCameraDataEncoded objects must have the "
-                    "same format."
+                    "All BatchCameraDataEncoded objects must have the same format."  # noqa: E501
                 )
         # concat sensor_data:
         super_ret = super().concat(others)
