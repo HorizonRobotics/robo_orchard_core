@@ -16,13 +16,15 @@
 
 """Base data class and mixin."""
 
+from typing import Any
+
 import torch
 from pydantic import BaseModel, ConfigDict
 from typing_extensions import Self
 
 from robo_orchard_core.utils.torch_utils import Device, make_device
 
-__all__ = ["DataClass", "TensorToMixin"]
+__all__ = ["DataClass", "TensorToMixin", "tensor_equal"]
 
 
 class DataClass(BaseModel):
@@ -66,6 +68,36 @@ class DataClass(BaseModel):
 
         """
         self.__post_init__()
+
+    def __eq__(self, other: Any) -> bool:
+        # use the default equality method first.
+        try:
+            return super().__eq__(other)
+        except Exception:
+            pass
+
+        def obj_eq(src, dst):
+            """Custom equality method for objects with tensor support."""
+            if isinstance(src, torch.Tensor) and isinstance(dst, torch.Tensor):
+                return tensor_equal(src, dst)
+            elif isinstance(src, (list, tuple)) and isinstance(
+                dst, (list, tuple)
+            ):
+                if len(src) != len(dst):
+                    return False
+                return all(obj_eq(s, d) for s, d in zip(src, dst, strict=True))
+            elif isinstance(src, dict) and isinstance(dst, dict):
+                if src.keys() != dst.keys():
+                    return False
+                return all(obj_eq(src[k], dst[k]) for k in src.keys())
+            else:
+                return src == dst
+
+        # if the default equality method fails, we use the custom
+        # equality method that compares the __dict__ attributes of the objects.
+        if not isinstance(other, DataClass):
+            raise NotImplementedError()
+        return obj_eq(self.__dict__, other.__dict__)
 
 
 class TensorToMixin:
@@ -138,3 +170,25 @@ class TensorToMixin:
             )
 
         return self
+
+
+def tensor_equal(
+    src: torch.Tensor | None, dst: torch.Tensor | None, atol: float = 1e-8
+) -> bool:
+    """Check if two tensors are equal within a tolerance.
+
+    Args:
+        src (torch.Tensor | None): The first tensor.
+        dst (torch.Tensor | None): The second tensor.
+        eps (float, optional): The tolerance for equality. Defaults to 1e-6.
+
+    Returns:
+        bool: True if the tensors are equal within the tolerance,
+            False otherwise.
+    """
+    if [src, dst].count(None) == 1:
+        return False
+    if src is None and dst is None:
+        return True
+    assert src is not None and dst is not None
+    return torch.allclose(src, dst, atol)

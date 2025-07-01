@@ -20,7 +20,10 @@ from typing import Any, Sequence
 
 import torch
 
-from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
+from robo_orchard_core.datatypes.dataclass import (
+    DataClass,
+    TensorToMixin,
+)
 from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
 
