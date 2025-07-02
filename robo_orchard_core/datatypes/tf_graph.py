@@ -132,16 +132,171 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
     This graph structure is specifically designed to handle batch frame
     transforms, where each edge represents a transformation between two frames.
     The nodes are identified by their frame IDs.
+
+    Args:
+        tf_list (list[BatchFrameTransform] | None): A list of
+            BatchFrameTransform objects to initialize the graph with.
+            If None, an empty graph is created.
+        bidirectional (bool): Whether to add mirrored edges in the opposite
+            direction. Defaults to True.
+        static_tf (list[bool] | None): A list of booleans indicating whether
+            each BatchFrameTransform is static. If None, all transforms are
+            considered non-static. Defaults to None.
+
     """
 
-    def __init__(self, tf_list: list[BatchFrameTransform] | None):
+    edges: dict[str, dict[str, BatchFrameTransform]]
+    """Graph is represented as a set of tf.
+
+    Mirrored(inversed) edges are also stored in the graph.
+    """
+
+    def __init__(
+        self,
+        tf_list: list[BatchFrameTransform] | None,
+        bidirectional: bool = True,
+        static_tf: list[bool] | None = None,
+    ):
         super().__init__()
+        self._mirrored_edges: dict[str, dict[str, BatchFrameTransform]] = {}
+        self._static_edges: dict[str, dict[str, bool]] = {}
 
         if tf_list is not None:
-            self.add_tf(tf_list)
+            self.add_tf(
+                tf_list, bidirectional=bidirectional, static_tf=static_tf
+            )
 
-    def add_tf(self, tf_list: list[BatchFrameTransform]):
-        for tf in tf_list:
+    def is_mirrored_tf(
+        self, parent_frame_id: str, child_frame_id: str
+    ) -> bool:
+        """Check if the edge is a mirrored edge."""
+        return (
+            parent_frame_id in self._mirrored_edges
+            and child_frame_id in self._mirrored_edges[parent_frame_id]
+        )
+
+    def is_static_tf(self, parent_frame_id: str, child_frame_id: str) -> bool:
+        """Check if the edge is a static edge."""
+        return parent_frame_id in self._static_edges and self._static_edges[
+            parent_frame_id
+        ].get(child_frame_id, False)
+
+    def _add_node(self, node_id: str, node: str):
+        """Add a node to the graph.
+
+        Overwrites the base class method to ensure that mirrored edges
+        and static edges are initialized correctly.
+        """
+        ret = super()._add_node(node_id, node)
+        if node_id in self._mirrored_edges:
+            raise ValueError(
+                f"Node {node_id} already exists in mirrored edges."
+            )
+        self._mirrored_edges[node_id] = {}
+        self._static_edges[node_id] = {}
+        return ret
+
+    def _add_edge(
+        self,
+        from_node: str,
+        to_node: str,
+        edge: BatchFrameTransform,
+        bidirectional: bool = True,
+        is_static: bool = False,
+    ):
+        """Add an edge between two nodes.
+
+        Overwrites the base class method to handle mirrored edges
+        and static edges.
+        """
+
+        super()._add_edge(from_node, to_node, edge)
+        if is_static:
+            self._static_edges[from_node][to_node] = True
+        if bidirectional:
+            # Add the mirrored edge in the opposite direction
+            mirrored_tf = edge.inverse()
+            mirrored_from_node = mirrored_tf.parent_frame_id
+            mirrored_to_node = mirrored_tf.child_frame_id
+            self._mirrored_edges[mirrored_from_node][mirrored_to_node] = (
+                mirrored_tf
+            )
+            super()._add_edge(
+                from_node=mirrored_from_node,
+                to_node=mirrored_to_node,
+                edge=mirrored_tf,
+            )
+            if is_static:
+                self._static_edges[mirrored_from_node][mirrored_to_node] = True
+
+    def update_tf(self, tf: BatchFrameTransform):
+        """Update a BatchFrameTransform in the graph.
+
+        You can only update a non-static BatchFrameTransform. If the
+        BatchFrameTransform is static, it will raise a ValueError.
+
+        If the mirrored(inversed) edge exists, it will also be updated
+        accordingly.
+
+        Args:
+            tf (BatchFrameTransform): The BatchFrameTransform to update.
+        """
+        old = self.edges.get(tf.parent_frame_id, {}).get(
+            tf.child_frame_id, None
+        )
+        if old is None:
+            raise ValueError(
+                f"BatchFrameTransform from {tf.parent_frame_id} to "
+                f"{tf.child_frame_id} does not exist."
+            )
+        # check if the new transform is static
+        is_static = self._static_edges.get(tf.parent_frame_id, {}).get(
+            tf.child_frame_id, False
+        )
+        if is_static:
+            raise ValueError(
+                f"Cannot update static BatchFrameTransform from "
+                f"{tf.parent_frame_id} to {tf.child_frame_id}."
+            )
+        # update the edge
+        self.edges[tf.parent_frame_id][tf.child_frame_id] = tf
+        # update the mirrored edge if it exists
+        if self.is_mirrored_tf(
+            tf.child_frame_id,
+            tf.parent_frame_id,
+        ):
+            mirrored_tf = tf.inverse()
+            mirrored_from_node = mirrored_tf.parent_frame_id
+            mirrored_to_node = mirrored_tf.child_frame_id
+            self._mirrored_edges[mirrored_from_node][mirrored_to_node] = (
+                mirrored_tf
+            )
+            self.edges[mirrored_from_node][mirrored_to_node] = mirrored_tf
+
+    def add_tf(
+        self,
+        tf_list: list[BatchFrameTransform],
+        bidirectional: bool = True,
+        static_tf: list[bool] | None = None,
+    ):
+        """Add a list of BatchFrameTransform to the graph.
+
+        Args:
+            tf_list (list[BatchFrameTransform]): A list of BatchFrameTransform
+                objects to add to the graph.
+            bidirectional (bool): Whether to add mirrored edges in the opposite
+                direction. Defaults to True.
+            static_tf (list[bool] | None): A list of booleans indicating
+                whether each BatchFrameTransform is static. If None, all
+                transforms are considered non-static. Defaults to None.
+        """
+
+        if static_tf is not None and len(static_tf) != len(tf_list):
+            raise ValueError(
+                "static_tf and tf_list must have the same length."
+            )
+        static_tf = static_tf or [False] * len(tf_list)
+        for tf, is_static in zip(tf_list, static_tf, strict=True):
             if tf.parent_frame_id is None:
                 raise ValueError(
                     "BatchFrameTransform must have a parent frame ID."
@@ -158,6 +313,8 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 from_node=tf.parent_frame_id,
                 to_node=tf.child_frame_id,
                 edge=tf,
+                bidirectional=bidirectional,
+                is_static=is_static,
             )
 
     def get_tf(
@@ -197,3 +354,24 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 return path[0].compose(*path[1:])
         else:
             return path
+
+    def export_edges(
+        self,
+        include_mirrored: bool = False,
+    ) -> list[BatchFrameTransform]:
+        """Export the edges of the graph.
+
+        Args:
+            include_mirrored (bool): Whether to include mirrored edges in the
+                exported edges. Defaults to False.
+        """
+        edges = []
+        for from_node, to_edges in self.edges.items():
+            for to_node, edge in to_edges.items():
+                if not include_mirrored and self.is_mirrored_tf(
+                    from_node, to_node
+                ):
+                    # Skip mirrored edges if not included
+                    continue
+                edges.append(edge)
+        return edges
