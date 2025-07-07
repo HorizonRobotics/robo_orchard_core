@@ -57,7 +57,7 @@ EnvBaseCfgType_co = TypeVar(
 
 class EnvBase(
     ClassInitFromConfigMixin,
-    Generic[EnvBaseCfgType_co, EnvStepReturnType],
+    Generic[EnvStepReturnType],
     metaclass=ABCMeta,
 ):
     """Base class for all environments.
@@ -71,16 +71,9 @@ class EnvBase(
 
 
     Template Args:
-        EnvBaseCfgType_co: The type of the configuration of the environment.
         EnvStepReturnType: The type of the return value of the `step` function.
 
-    Args:
-        cfg (EnvBaseCfg): The configuration of the environment.
-
     """
-
-    def __init__(self, cfg: EnvBaseCfgType_co):
-        self.cfg = cfg
 
     @abstractmethod
     def step(self, *args, **kwargs) -> EnvStepReturnType:

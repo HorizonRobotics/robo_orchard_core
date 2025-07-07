@@ -14,7 +14,7 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-from typing import Dict, Generic, List, Mapping, Sequence
+from typing import Any, Dict, Generic, List, Mapping, Sequence
 
 import torch
 from typing_extensions import TypeVar
@@ -24,7 +24,6 @@ from robo_orchard_core.envs.managers.actions.action_term import (
     ActionTermCfg,
 )
 from robo_orchard_core.envs.managers.manager_base import (
-    EnvType,
     EnvType_co,
     ManagerBase,
     ManagerBaseCfg,
@@ -135,13 +134,12 @@ class ActionManager(ManagerBase[EnvType_co, ActManagerConfigType_co]):
 
 
 class ActionManagerCfg(
-    ManagerBaseCfg[EnvType, ActionManager],
-    Generic[EnvType, ActionTermCfgType_co],
+    ManagerBaseCfg[ActionManager],
+    Generic[ActionTermCfgType_co],
 ):
     """The configuration for the action manager.
 
     Template Args:
-        EnvType: The environment type.
         ActionTermCfgType_co: The configuration type for the action terms.
     """
 
@@ -150,7 +148,7 @@ class ActionManagerCfg(
     terms: Mapping[str, ActionTermCfgType_co]
     """The configuration for the action terms."""
 
-    def create_terms(self, env: EnvType) -> Dict[str, ActionTermBase]:
+    def create_terms(self, env: Any) -> Dict[str, ActionTermBase]:
         """Creates the action terms.
 
         Args:

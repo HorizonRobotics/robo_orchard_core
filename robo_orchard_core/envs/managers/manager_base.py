@@ -28,7 +28,7 @@ from typing import Any, Generic, Sequence
 
 from typing_extensions import TypeVar
 
-from robo_orchard_core.envs.env_base import EnvType, EnvType_co
+from robo_orchard_core.envs.env_base import EnvType_co
 from robo_orchard_core.utils.config import (
     ClassConfig,
     ClassInitFromConfigMixin,
@@ -59,7 +59,7 @@ class ManagerBase(
 
     Args:
         cfg (ManagerBaseCfg): The configuration of the manager.
-        env (EnvType_co): The
+        env (EnvType_co): The environment that the manager is associated with.
 
     """
 
@@ -80,15 +80,15 @@ class ManagerBase(
 
 class ManagerBaseCfg(
     ClassConfig[ManagerType_co],
-    Generic[EnvType, ManagerType_co],
+    Generic[ManagerType_co],
 ):
     """Configuration class for the manager."""
 
-    def __call__(self, env: EnvType, **kwargs) -> ManagerType_co:
+    def __call__(self, env: Any, **kwargs) -> ManagerType_co:
         """Creates an instance of the manager term.
 
         Args:
-            env(EnvType): The environment.
+            env(Any): The environment.
             **kwargs: The keyword arguments to be passed to update the
                 configuration.
 

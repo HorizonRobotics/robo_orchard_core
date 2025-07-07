@@ -23,7 +23,7 @@ from typing import Any, Generic, Mapping
 
 from typing_extensions import TypeVar
 
-from robo_orchard_core.envs.env_base import EnvBase, EnvType, EnvType_co
+from robo_orchard_core.envs.env_base import EnvType_co
 from robo_orchard_core.utils.config import (
     ClassConfig,
     ClassInitFromConfigMixin,
@@ -66,6 +66,9 @@ class ManagerTermBase(
 
     """
 
+    cfg: TermConfigType_co
+    _env: EnvType_co
+
     def __init__(self, cfg: TermConfigType_co, env: EnvType_co):
         self.cfg = cfg
         self._env = env
@@ -90,7 +93,7 @@ class ManagerTermBaseCfg(
         ManagerTermType_co: The type of the manager term.
     """
 
-    def __call__(self, env: EnvBase, **kwargs) -> ManagerTermType_co:
+    def __call__(self, env: Any, **kwargs) -> ManagerTermType_co:
         """Creates an instance of the manager term.
 
         Args:
@@ -102,14 +105,10 @@ class ManagerTermBaseCfg(
         return self.create_instance_by_cfg(env, **kwargs)
 
 
-class ManagerTermGroupCfg(
-    Config, Generic[EnvType, ManagerTermType_co, TermConfigType_co]
-):
+class ManagerTermGroupCfg(Config, Generic[TermConfigType_co]):
     """The configuration for the observation group.
 
     Template Args:
-        EnvType: The environment type.
-        ManagerTermType_co: The type of the manager term.
         TermConfigType_co: The type of the term configuration.
 
     Args:
@@ -121,7 +120,7 @@ class ManagerTermGroupCfg(
     terms: Mapping[str, TermConfigType_co]
     """The configuration for the observation terms."""
 
-    def create_terms(self, env: EnvType) -> dict[str, ManagerTermType_co]:
+    def create_terms(self, env: Any):
         """Creates the observation terms."""
         return {key: cfg(env=env) for key, cfg in self.terms.items()}
 

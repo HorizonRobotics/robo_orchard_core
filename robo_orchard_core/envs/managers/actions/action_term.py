@@ -55,7 +55,7 @@ class ActionTermBase(ManagerTermBase[EnvType_co, ActionTermCfgType_co]):
     """
 
     def __init__(self, cfg: ActionTermCfgType_co, env: EnvType_co):
-        super().__init__(cfg, env)
+        super().__init__(cfg, env)  # type: ignore
         self._prepare_asset()
 
         self._raw_actions: torch.Tensor = torch.tensor([])

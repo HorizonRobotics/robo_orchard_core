@@ -25,7 +25,6 @@ from robo_orchard_core.envs.managers.events.event_term import (
     EventTermBaseCfg,
 )
 from robo_orchard_core.envs.managers.manager_base import (
-    EnvType,
     EnvType_co,
     ManagerBase,
     ManagerBaseCfg,
@@ -307,23 +306,20 @@ class EventManager(ManagerBase[EnvType_co, EventManagerConfigType_co]):
 
 
 class EventManagerCfg(
-    ManagerBaseCfg[EnvType, EventManager],
-    Generic[EnvType, EventTermConfigType_co],
+    ManagerBaseCfg[EventManager],
+    Generic[EventTermConfigType_co],
 ):
     """The configuration for the event manager.
 
     Template Args:
-
-        EnvType: The type of the environment.
         EventTermConfigType_co: The type of the event term configuration.
-
     """
 
     class_type: ClassType_co[EventManager] = EventManager
 
     terms: Mapping[str, EventTermConfigType_co] = {}
 
-    def create_terms(self, env: EnvType) -> Dict[str, EventTermBase]:
+    def create_terms(self, env: Any) -> Dict[str, EventTermBase]:
         return {
             term_name: term_cfg(env=env)
             for term_name, term_cfg in self.terms.items()

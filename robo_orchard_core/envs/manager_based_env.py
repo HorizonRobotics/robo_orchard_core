@@ -95,7 +95,8 @@ class StepEvent(EventMsg):
 
 
 class TermManagerBasedEnv(
-    EnvBase[TermManagerBasedEnvCfgType_co, StepReturnType]
+    EnvBase[StepReturnType],
+    Generic[TermManagerBasedEnvCfgType_co, StepReturnType],
 ):
     """The environment class which use term managers to interact.
 
@@ -130,7 +131,7 @@ class TermManagerBasedEnv(
     STEP: tuple[str, type[StepEvent]] = ("step", StepEvent)
 
     def __init__(self, cfg: TermManagerBasedEnvCfgType_co):
-        super().__init__(cfg)
+        self.cfg = cfg
         self._load_managers()
 
     def _load_managers(self):
@@ -242,6 +243,6 @@ class TermManagerBasedEnvCfg(
 
     class_type: ClassType_co[TermManagerBasedEnvType_co]
 
-    observations: ObservationManagerCfg[TermManagerBasedEnvType_co]
-    actions: ActionManagerCfg[TermManagerBasedEnvType_co, ActionTermCfg]
-    events: EventManagerCfg[TermManagerBasedEnvType_co, EventTermBaseCfg]
+    observations: ObservationManagerCfg
+    actions: ActionManagerCfg[ActionTermCfg]
+    events: EventManagerCfg[EventTermBaseCfg]

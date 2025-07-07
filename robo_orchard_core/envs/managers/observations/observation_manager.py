@@ -20,7 +20,6 @@ import torch
 from typing_extensions import TypeAlias, TypeVar
 
 from robo_orchard_core.envs.managers.manager_base import (
-    EnvType,
     EnvType_co,
     ManagerBase,
     ManagerBaseCfg,
@@ -32,14 +31,11 @@ from robo_orchard_core.envs.managers.observations.observation_term import (
     ObsCfgType_co,
     ObservationTermBase,
     ObservationTermCfg,
-    ObsTermType_co,
 )
 from robo_orchard_core.utils.config import ClassType_co
 
 
-class ObservationGroupCfg(
-    ManagerTermGroupCfg[EnvType, ObsTermType_co, ObsCfgType_co]
-):
+class ObservationGroupCfg(ManagerTermGroupCfg[ObsCfgType_co]):
     """The configuration for the observation group.
 
     Template Args:
@@ -174,7 +170,7 @@ ObservationManagerType_co = TypeVar(
 )
 
 
-class ObservationManagerCfg(ManagerBaseCfg[EnvType, ObservationManager]):
+class ObservationManagerCfg(ManagerBaseCfg[ObservationManager]):
     """The configuration for the observation manager.
 
     Template Args:

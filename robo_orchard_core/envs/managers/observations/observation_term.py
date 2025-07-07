@@ -69,7 +69,7 @@ class ObservationTermBase(
     """
 
     def __init__(self, cfg: ObsCfgType_co, env: EnvType_co):
-        super().__init__(cfg, env)
+        super().__init__(cfg, env)  # type: ignore
 
     @abstractmethod
     def __call__(self) -> ReturnType:
