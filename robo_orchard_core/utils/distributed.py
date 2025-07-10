@@ -21,10 +21,6 @@ from typing import Optional
 import torch.distributed as dist
 from torch.utils.data import get_worker_info
 
-from robo_orchard_core.utils.logging import LoggerManager
-
-logger = LoggerManager().get_child(__name__)
-
 __all__ = [
     "rank_zero_only",
     "is_dist_initialized",

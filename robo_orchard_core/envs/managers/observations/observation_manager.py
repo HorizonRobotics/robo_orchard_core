@@ -16,6 +16,8 @@
 
 from typing import Any, Dict, List, Mapping, Sequence
 
+import gymnasium as gym
+import numpy as np
 import torch
 from typing_extensions import TypeAlias, TypeVar
 
@@ -160,6 +162,60 @@ class ObservationManager(ManagerBase[EnvType_co, ObsManagerConfigType_co]):
             return torch.cat(terms, dim=-1)
         else:
             return {key: term() for key, term in group.items()}
+
+    @property
+    def observation_space(self) -> gym.spaces.Dict:
+        """The observation space of the environment.
+
+        This is used to determine the type of observations that can be
+        received from the environment. The observation space is usually
+        defined in the environment configuration.
+
+        Returns:
+            gym.Space: The observation space of the environment.
+        """
+        ret = {}
+        for group_name, group in self._group_terms.items():
+            if self.cfg.groups[group_name].concatenate_terms:
+                # Concatenate the observation terms
+                low = []
+                high = []
+                shape = None
+                for term in group.values():
+                    s = term.observation_space
+                    assert isinstance(s, gym.spaces.Box), (
+                        "Observation terms must return a Box space when "
+                        "concatenating the terms."
+                    )
+                    low.append(s.low)
+                    high.append(s.high)
+                    if shape is None:
+                        shape = list(s.shape)
+                    else:
+                        assert len(shape) == len(s.shape), (
+                            "Observation terms must have the same shape when "
+                            "concatenating the terms."
+                        )
+                        for i in range(len(shape) - 1):
+                            assert shape[i] == s.shape[i], (
+                                "Observation terms must have the same shape "
+                                "when concatenating the terms."
+                            )
+                        shape[-1] += s.shape[-1]
+                    ret[group_name] = gym.spaces.Box(
+                        low=np.stack(low, axis=-1),
+                        high=np.stack(high, axis=-1),
+                        shape=shape,
+                    )
+            else:
+                # Keep the observation terms separate
+                ret[group_name] = gym.spaces.Dict(
+                    {
+                        key: term.observation_space
+                        for key, term in group.items()
+                    }
+                )
+        return gym.spaces.Dict(ret)
 
 
 ObservationManagerType_co = TypeVar(

@@ -131,6 +131,14 @@ class TestSimpleConfig:
             "int_value": 200,
         }
 
+    def test_dict_dump_with_type(self):
+        config = DummyConfig()
+        config.int_value = 200
+        assert config.to_dict(include_config_type=True) == {
+            "__config_type__": "test_config:DummyConfig",
+            "int_value": 200,
+        }
+
     def test_from_dict(self):
         config = DummyConfig.from_dict({"int_value": 200})
         assert config.int_value == 200

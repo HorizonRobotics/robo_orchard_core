@@ -19,6 +19,7 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Sequence
 from typing import Any, Generic
 
+import gymnasium as gym
 from typing_extensions import TypeVar
 
 from robo_orchard_core.envs.managers.manager_base import (
@@ -90,6 +91,19 @@ class ObservationTermBase(
 
         """
         raise NotImplementedError
+
+    @property
+    def observation_space(self) -> gym.Space[ReturnType]:
+        """The observation space of the observation term.
+
+        Returns:
+            gym.Space[ReturnType]: The observation space of the observation
+                term.
+
+        """
+        raise NotImplementedError(
+            "The observation space is not defined for this observation term."
+        )
 
 
 class ObservationTermCfg(

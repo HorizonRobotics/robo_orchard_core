@@ -32,6 +32,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     GenerateSchema,
+    SerializationInfo,
     SerializerFunctionWrapHandler,
     ValidatorFunctionWrapHandler,
 )
@@ -257,7 +258,7 @@ TorchTensor = Annotated[
     PlainValidator(
         lambda x: torch.tensor(x) if not isinstance(x, torch.Tensor) else x
     ),
-    PlainSerializer(lambda x: x.tolist(), return_type=list),
+    PlainSerializer(lambda x: x.tolist(), return_type=list, when_used="json"),
 ]
 
 
@@ -272,12 +273,14 @@ class Config(BaseModel):
         protected_namespaces=(),
     )
 
-    @model_serializer(mode="wrap", return_type=dict, when_used="json")
-    def wrapped_model_ser(self, handler: SerializerFunctionWrapHandler):
+    @model_serializer(mode="wrap", return_type=dict, when_used="always")
+    def wrapped_model_ser(
+        self, handler: SerializerFunctionWrapHandler, info: SerializationInfo
+    ):
         """Serializes the configuration to a dictionary.
 
-        This wrapper function is used when the configuration is serialized
-        to a JSON string. It adds the `__config_type__` key to the dictionary.
+        This wrapper function is used when the configuration is serialized.
+        It adds the `__config_type__` key to the dictionary.
 
         `__config_type__` is the string representation of the class type. It
         is used to determine the class type when deserializing the JSON string
@@ -289,12 +292,23 @@ class Config(BaseModel):
         For builtin types, the `__config_type__` key will not be added to the
         dictionary.
 
-        """
+        The `context` argument in the `model_dump` method is used to
+        determine whether to include the `__config_type__` key in the
+        serialized dictionary. If context['exclude_config_type'] is True,
+        the `__config_type__` key will not be added to the dictionary.
 
+        """
         if (
-            hasattr(self, "__exclude_config_type__")
-            and self.__exclude_config_type__
-        ) or self.__class__.__module__ == "builtins":
+            (
+                hasattr(self, "__exclude_config_type__")
+                and self.__exclude_config_type__
+            )
+            or self.__class__.__module__ == "builtins"
+            or (
+                isinstance(info.context, dict)
+                and info.context.get("exclude_config_type", True)
+            )
+        ):
             return handler(self)
 
         ret = {"__config_type__": callable_to_string(type(self))}
@@ -310,7 +324,7 @@ class Config(BaseModel):
             data = from_json(data, allow_partial=True)
         if isinstance(data, dict):
             if "__config_type__" in data:
-                data = deepcopy(data)
+                data = data.copy()
                 target_cls = string_to_callable(data.pop("__config_type__"))
                 if target_cls == cls:
                     return handler(data)
@@ -343,6 +357,7 @@ class Config(BaseModel):
 
     def to_dict(
         self,
+        mode: Literal["python", "json"] = "python",
         exclude_unset: bool = False,
         exclude_defaults: bool = False,
         exclude_none: bool = False,
@@ -360,6 +375,10 @@ class Config(BaseModel):
             :py:meth:`to_str` method for serialization!
 
         Args:
+            mode (Literal["python", "json"]): The mode of the output
+                dictionary. If 'python', the output will be a Python
+                dictionary. If 'json', the output will be a JSON serializable
+                dictionary. Default is 'python'.
             exclude_unset (bool): Whether to exclude unset values from the
                 dictionary. Default is False.
             exclude_defaults (bool): Whether to exclude default values from the
@@ -374,12 +393,15 @@ class Config(BaseModel):
                 Default is False.
 
         """
-        mode = "python" if not include_config_type else "json"
+        context = {
+            "exclude_config_type": not include_config_type,
+        }
         ret = self.model_dump(
             mode=mode,
             exclude_unset=exclude_unset,
             exclude_defaults=exclude_defaults,
             exclude_none=exclude_none,
+            context=context,
             **kwargs,
         )
         return ret
@@ -390,16 +412,18 @@ class Config(BaseModel):
         exclude_unset: bool = False,
         exclude_defaults: bool = False,
         exclude_none: bool = False,
+        include_config_type: bool = True,
         **kwargs,
     ) -> str:
         """Converts the configuration to a string.
 
         Different from the `to_dict` method, this method adds the
         '__config_type__' key to the dictionary and converts the dictionary
-        to a string.
+        to a string by default.
 
         For config that does not need '__config_type__' key, set
-        `__exclude_config_type__` to True in the config class.
+        `__exclude_config_type__` to True in the config class or
+        set `include_config_type` to False in the method call.
 
         Args:
             format (str): The format of the output string. Can be 'json',
@@ -410,6 +434,12 @@ class Config(BaseModel):
                 dictionary. Default is False.
             exclude_none (bool): Whether to exclude None values from the
                 dictionary. Default is False.
+            include_config_type (bool): Whether to include the
+                `__config_type__` key in the string. If False, the
+                deserialization will use the class type defined in the class
+                annotation, not the actual deserialized class type! This will
+                break the consistency of serialization and deserialization.
+                Default is True.
             **kwargs: Additional keyword arguments to be passed to the
                 serialization method :meth:`BaseModel.model_dump_json`.
 
@@ -422,6 +452,9 @@ class Config(BaseModel):
             exclude_unset=exclude_unset,
             exclude_defaults=exclude_defaults,
             exclude_none=exclude_none,
+            context={
+                "exclude_config_type": not include_config_type,
+            },
             **kwargs,
         )
 

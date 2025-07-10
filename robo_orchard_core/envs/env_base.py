@@ -19,6 +19,7 @@
 from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 
+import gymnasium as gym
 from typing_extensions import (
     Generic,
     Sequence,
@@ -89,7 +90,10 @@ class EnvBase(
 
     @abstractmethod
     def reset(
-        self, env_ids: Sequence[int] | None = None, **kwargs
+        self,
+        seed: int | None = None,
+        env_ids: Sequence[int] | None = None,
+        **kwargs,
     ) -> EnvStepReturnType:
         """Reset the environment."""
 
@@ -118,3 +122,33 @@ class EnvBase(
 
         """
         raise NotImplementedError
+
+    @property
+    def action_space(self) -> gym.Space:
+        """The action space of the environment.
+
+        This is used to determine the type of actions that can be taken in
+        the environment. The action space is usually defined in the
+        environment configuration.
+
+        Returns:
+            gym.Space: The action space of the environment.
+        """
+        raise NotImplementedError(
+            "The action space is not defined in the environment."
+        )
+
+    @property
+    def observation_space(self) -> gym.Space:
+        """The observation space of the environment.
+
+        This is used to determine the type of observations that can be
+        received from the environment. The observation space is usually
+        defined in the environment configuration.
+
+        Returns:
+            gym.Space: The observation space of the environment.
+        """
+        raise NotImplementedError(
+            "The observation space is not defined in the environment."
+        )

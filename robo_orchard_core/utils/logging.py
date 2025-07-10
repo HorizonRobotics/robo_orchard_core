@@ -17,17 +17,27 @@
 """The logging module."""
 
 import logging
-import logging.config
-import logging.handlers
 import sys
 
 from typing_extensions import Dict, Optional, Self
 
 DEFAULT_LOG_FORMAT = (
-    "%(asctime)-15s %(levelname)s "
+    "%rank %(asctime)-15s %(levelname)s "
     "| %(process)d | %(threadName)s | "
-    "%(module)s:%(name)s:L%(lineno)d %(message)s"
+    "%(name)s:L%(lineno)d %(message)s"
 )
+
+
+def wrap_log_fmt_with_rank(format: str) -> str:
+    """Wrap the log format with the rank of the process."""
+    from robo_orchard_core.utils.distributed import get_dist_info
+
+    if "%rank" in format:
+        dist_info = get_dist_info()
+        format = format.replace(
+            "%rank", "Rank[{}/{}]".format(dist_info.rank, dist_info.world_size)
+        )
+    return format
 
 
 class _Singleton:
@@ -72,7 +82,7 @@ class LoggerManager(_Singleton):
         self._logger = logging.getLogger("LoggerManager")
         self._logger.propagate = False
         self._logger.setLevel(level)
-        self._format = format
+        self._format = wrap_log_fmt_with_rank(format)
         self._level = level
         if handlers is None:
             handlers = [
@@ -137,7 +147,7 @@ class LoggerManager(_Singleton):
             Self: The logger manager.
 
         """
-
+        format = wrap_log_fmt_with_rank(format)
         self._format = format
 
         loggers_to_set = [self._logger]

@@ -15,8 +15,9 @@
 # permissions and limitations under the License.
 from __future__ import annotations
 from abc import abstractmethod
-from typing import Generic
+from typing import Any, Generic
 
+import gymnasium as gym
 import torch
 from typing_extensions import TypeVar
 
@@ -60,6 +61,21 @@ class ActionTermBase(ManagerTermBase[EnvType_co, ActionTermCfgType_co]):
 
         self._raw_actions: torch.Tensor = torch.tensor([])
         self._processed_actions: torch.Tensor = torch.tensor([])
+
+    @property
+    def action_space(self) -> gym.Space[Any]:
+        """The action space of the action term.
+
+        The space describes the valid input actions(raw_actions to be
+        processed) that can be sent to the action term.
+
+        Returns:
+            gym.Space: The action space of the action term.
+        """
+        raise NotImplementedError(
+            "The action space is not defined for the action term. "
+            "Please override the `action_space` property in the action term."
+        )
 
     @property
     def raw_actions(self) -> torch.Tensor:

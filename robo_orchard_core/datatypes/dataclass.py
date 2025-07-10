@@ -18,13 +18,27 @@
 
 from typing import Any
 
+import numpy as np
 import torch
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    ValidatorFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
+from pydantic_core import from_json
 from typing_extensions import Self
 
+from robo_orchard_core.utils.config import (
+    callable_to_string,
+    string_to_callable,
+)
 from robo_orchard_core.utils.torch_utils import Device, make_device
 
-__all__ = ["DataClass", "TensorToMixin", "tensor_equal"]
+__all__ = ["DataClass", "TensorToMixin", "tensor_equal", "np2torch"]
 
 
 class DataClass(BaseModel):
@@ -51,6 +65,58 @@ class DataClass(BaseModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    @model_serializer(mode="wrap", return_type=dict, when_used="always")
+    def wrapped_model_ser(
+        self, handler: SerializerFunctionWrapHandler, info: SerializationInfo
+    ):
+        """Serializes the configuration to a dictionary.
+
+        This wrapper function is used when the configuration is serialized.
+        It adds the `__class_type__` key to the dictionary.
+
+        `__class_type__` is the string representation of the class type. It
+        is used to determine the class type when deserializing the JSON string
+        instead of using pydantic's default behavior.
+
+        For builtin types, the `__class_type__` key will not be added to the
+        dictionary.
+
+        The `context` argument in the `model_dump` method is used to
+        determine whether to include the `__class_type__` key in the
+        serialized dictionary. If context['include_class_type'] is True,
+        the `__class_type__` key will be added to the dictionary.
+
+        """
+        if self.__class__.__module__ == "builtins":
+            return handler(self)
+        if isinstance(info.context, dict) and info.context.get(
+            "include_class_type", False
+        ):
+            ret = {"__class_type__": callable_to_string(type(self))}
+            ret.update(handler(self))
+            return ret
+        else:
+            return handler(self)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def wrapped_model_val(
+        cls, data: Any, handler: ValidatorFunctionWrapHandler
+    ):
+        if isinstance(data, str):
+            data = from_json(data, allow_partial=True)
+        if isinstance(data, dict):
+            if "__class_type__" in data:
+                data = data.copy()
+                target_cls = string_to_callable(data.pop("__class_type__"))
+                if target_cls == cls:
+                    return handler(data)
+                else:
+                    return target_cls.model_validate(data)
+            else:
+                return handler(data)
+        return data
 
     def __post_init__(self):
         """Hack to replace __post_init__ in configclass."""
@@ -192,3 +258,17 @@ def tensor_equal(
         return True
     assert src is not None and dst is not None
     return torch.allclose(src, dst, atol)
+
+
+def np2torch(src: np.ndarray | list | dict | torch.Tensor) -> Any:
+    """Convert numpy array to torch tensor."""
+    if isinstance(src, torch.Tensor):
+        return src
+    if isinstance(src, np.ndarray):
+        return torch.from_numpy(src)
+    elif isinstance(src, (list, tuple)):
+        return [np2torch(obj) for obj in src]
+    elif isinstance(src, dict):
+        return {k: np2torch(v) for k, v in src.items()}
+    else:
+        return src

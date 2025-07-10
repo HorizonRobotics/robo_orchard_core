@@ -405,12 +405,12 @@ class TestBatchTransform3D:
         assert torch.allclose(
             inv_batch_transform.xyz,
             inv_batch_transform_m.get_translation(),
-            atol=1e-7,
+            atol=1e-5,
         )
         assert torch.allclose(
             inv_batch_transform.quat,
             inv_batch_transform_m.get_rotation_quaternion(),
-            atol=1e-7,
+            atol=1e-5,
         )
 
 

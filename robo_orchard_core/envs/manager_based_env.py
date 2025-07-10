@@ -22,6 +22,7 @@ from abc import abstractmethod
 from collections.abc import Sequence
 from typing import Generic, Optional
 
+import gymnasium as gym
 import torch
 from typing_extensions import TypeVar
 
@@ -147,6 +148,28 @@ class TermManagerBasedEnv(
         self.event_manager.register(self.START_UP[0], self.START_UP[1])
 
     @property
+    def observation_space(self) -> gym.spaces.Dict:
+        """The observation space of the environment.
+
+        Returns:
+            gym.spaces.Dict: The observation space of the
+                environment.
+
+        """
+        return self.observation_manager.observation_space
+
+    @property
+    def action_space(self) -> gym.spaces.Dict:
+        """The action space of the environment.
+
+        Returns:
+            gym.spaces.Dict: The action space of the
+                environment.
+
+        """
+        return self.action_manager.action_space
+
+    @property
     def event_topics(self) -> set[str]:
         return self.event_manager.event_topics
 
@@ -190,7 +213,10 @@ class TermManagerBasedEnv(
 
     @abstractmethod
     def reset(
-        self, env_ids: Sequence[int] | None = None, **kwargs
+        self,
+        seed: int | None = None,
+        env_ids: Sequence[int] | None = None,
+        **kwargs,
     ) -> StepReturnType:
         """Reset the environment.
 

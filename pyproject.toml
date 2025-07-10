@@ -12,6 +12,7 @@ dependencies = [
     "pydantic<=2.10.6",
     "pydantic-settings",
     "ordered-set",
+    "gymnasium",
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

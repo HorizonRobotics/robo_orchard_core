@@ -16,6 +16,7 @@
 
 from typing import Any, Dict, Generic, List, Mapping, Sequence
 
+import gymnasium as gym
 import torch
 from typing_extensions import TypeVar
 
@@ -95,6 +96,24 @@ class ActionManager(ManagerBase[EnvType_co, ActManagerConfigType_co]):
     def prev_action(self) -> Dict[str, torch.Tensor]:
         """Returns the previous actions."""
         return self._prev_actions
+
+    @property
+    def action_space(self) -> gym.spaces.Dict:
+        """Returns the action space of the action manager.
+
+        The action space is a dictionary where the keys are the term names
+        and the values are the action spaces of the terms.
+
+        Returns:
+            gym.spaces.Dict: The action space of the action manager.
+
+        """
+        return gym.spaces.Dict(
+            {
+                term_name: term.action_space
+                for term_name, term in self._terms.items()
+            }
+        )
 
     def process(self, actions: Dict[str, torch.Tensor]) -> None:
         """Processes the actions.
