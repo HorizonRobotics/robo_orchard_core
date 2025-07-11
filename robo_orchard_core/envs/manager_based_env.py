@@ -26,7 +26,12 @@ import gymnasium as gym
 import torch
 from typing_extensions import TypeVar
 
-from robo_orchard_core.envs.env_base import EnvBase, EnvBaseCfg
+from robo_orchard_core.envs.env_base import (
+    EnvBase,
+    EnvBaseCfg,
+    EnvStepReturn,
+    RewardsType,
+)
 from robo_orchard_core.envs.managers.actions import (
     ActionManager,
     ActionManagerCfg,
@@ -54,11 +59,8 @@ TermManagerBasedEnvCfgType_co = TypeVar(
     covariant=True,
 )
 
-StepReturnType = TypeVar(
-    "StepReturnType",
-    bound=tuple[ObsReturnType, ...],
-    default=tuple[ObsReturnType, ...],
-)
+
+# StepReturnType: TypeAlias = EnvStepReturn[ObsReturnType, RewardsType]
 
 
 class ResetEvent(EventMsg):
@@ -96,8 +98,8 @@ class StepEvent(EventMsg):
 
 
 class TermManagerBasedEnv(
-    EnvBase[StepReturnType],
-    Generic[TermManagerBasedEnvCfgType_co, StepReturnType],
+    EnvBase[EnvStepReturn[ObsReturnType, RewardsType]],
+    Generic[TermManagerBasedEnvCfgType_co, RewardsType],
 ):
     """The environment class which use term managers to interact.
 
@@ -173,7 +175,9 @@ class TermManagerBasedEnv(
     def event_topics(self) -> set[str]:
         return self.event_manager.event_topics
 
-    def step(self, action: dict[str, torch.Tensor] | None) -> StepReturnType:
+    def step(
+        self, actions: dict[str, torch.Tensor] | None
+    ) -> EnvStepReturn[ObsReturnType, RewardsType]:
         """Execute one step of the environment.
 
         The step function is the main function to interact with the
@@ -217,7 +221,7 @@ class TermManagerBasedEnv(
         seed: int | None = None,
         env_ids: Sequence[int] | None = None,
         **kwargs,
-    ) -> StepReturnType:
+    ) -> EnvStepReturn[ObsReturnType, RewardsType]:
         """Reset the environment.
 
         This function will call the reset function of the environment and

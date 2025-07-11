@@ -38,8 +38,6 @@ class SceneEntityCfg(Config):
         User should implement the :meth:`resolve` method to resolve the names
         to indices.
 
-
-
     """
 
     name: str
