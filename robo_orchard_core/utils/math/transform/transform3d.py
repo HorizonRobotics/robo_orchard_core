@@ -259,7 +259,7 @@ class Transform3D_M:
         self.dtype = dtype
 
     def __repr__(self):
-        return f"Transform3D_M<id={id(self)}>({self._matrix})"
+        return f"Transform3D_M<id={id(self)}>({self.get_matrix()})"
 
     @classmethod
     def from_rot_trans(cls, R: torch.Tensor, T: torch.Tensor) -> Transform3D_M:
@@ -334,6 +334,22 @@ class Transform3D_M:
                 raise ValueError(msg % type(other))
         out._transforms = self._transforms + list(others)
         return out
+
+    def __matmul__(self, other: Transform3D_M) -> Transform3D_M:
+        """Overload the @ operator to compose two Transform3D_M objects.
+
+        Args:
+            other: Another Transform3D_M object to compose with self.
+
+        Returns:
+            Transform3D_M: A new Transform3D_M object representing the
+                composition.
+        """
+        if not isinstance(other, Transform3D_M):
+            msg = "Only possible to compose Transform3D_M objects; got %s"
+            raise ValueError(msg % type(other))
+
+        return self.compose(other)
 
     def get_matrix(self) -> torch.Tensor:
         """Returns a 4x4 matrix corresponding to each transform in the batch.
@@ -542,12 +558,18 @@ class Transform3D_M:
             points_out: points of shape (N, P, 3) or (P, 3) depending
             on the dimensions of the transform
         """  # noqa: E501
-        points_batch = points.clone()
+
+        old_shape = points.shape
+        old_dim = points.dim()
+
+        # points_batch = points.clone()
+        points_batch = points
+
         if points_batch.dim() == 2:
             points_batch = points_batch[None]  # (P, 3) -> (1, P, 3)
         if points_batch.dim() != 3:
             msg = "Expected points to have dim = 2 or dim = 3: got shape %r"
-            raise ValueError(msg % repr(points.shape))
+            raise ValueError(msg % repr(old_shape))
 
         N, P, _3 = points_batch.shape
         ones = torch.ones(N, P, 1, dtype=points.dtype, device=points.device)
@@ -564,8 +586,8 @@ class Transform3D_M:
 
         # When transform is (1, 4, 4) and points is (P, 3) return
         # points_out of shape (P, 3)
-        if points_out.shape[0] == 1 and points.dim() == 2:
-            points_out = points_out.reshape(points.shape)
+        if points_out.shape[0] == 1 and old_dim == 2:
+            points_out = points_out.reshape(old_shape)
 
         return points_out
 

@@ -439,7 +439,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
             timestamps=timestamps,
         )
 
-    def concat(self, others: Sequence[BatchTransform3D]) -> BatchTransform3D:
+    def concat(self, others: Sequence[Self]) -> Self:
         """Concatenate two BatchTransform3D objects along batch dimension.
 
         Args:
@@ -449,7 +449,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
         Returns:
             BatchTransform3D: A new BatchTransform3D with concatenated data.
         """
-        return BatchTransform3D(
+        return type(self)(
             xyz=torch.cat([self.xyz] + [other.xyz for other in others], dim=0),
             quat=torch.cat(
                 [self.quat] + [other.quat for other in others], dim=0
@@ -621,7 +621,7 @@ class BatchPose(BatchTransform3D):
         p = super().inverse()
         return type(self)(frame_id=frame_id, **p.__dict__)
 
-    def concat(self, others: list[BatchPose]) -> BatchPose:
+    def concat(self, others: list[Self]) -> Self:
         """Concatenate two BatchPose objects along batch dimension.
 
         Args:
@@ -637,7 +637,7 @@ class BatchPose(BatchTransform3D):
                     "All BatchPose objects must have the same frame_id."
                 )
         super_ret = super().concat(others)
-        return BatchPose(
+        return type(self)(
             frame_id=self.frame_id,
             **super_ret.__dict__,
         )
@@ -758,9 +758,7 @@ class BatchFrameTransform(BatchTransform3D):
             **p.__dict__,
         )
 
-    def concat(
-        self, others: Sequence[BatchFrameTransform]
-    ) -> BatchFrameTransform:
+    def concat(self, others: Sequence[Self]) -> Self:
         """Concatenate two BatchFrameTransform objects along batch dimension.
 
         Args:
@@ -785,7 +783,7 @@ class BatchFrameTransform(BatchTransform3D):
                     "child_frame_id."
                 )
         super_ret = super().concat(others)
-        return BatchFrameTransform(
+        return type(self)(
             parent_frame_id=self.parent_frame_id,
             child_frame_id=self.child_frame_id,
             **super_ret.__dict__,

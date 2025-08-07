@@ -14,13 +14,19 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-"""3D Transforms.
+"""2D and 3D Transforms.
 
-This module is copied from `pytorch3d.transforms` to avoid the dependency
-on pytorch3d. Once pytorch3d can be installed by pip, this file should be
-removed and the dependency should be added to the requirements.txt file.
+3D Transform module is copied from `pytorch3d.transforms` to avoid the
+dependency on pytorch3d. Once pytorch3d can be installed by pip, this
+file should be emoved and the dependency should be added to the
+requirements.txt file.
+
+2D Transform module is used for 2D transforms, such as rotation and translation
+in 2D space and images.
+
 """
 
 from .se3 import *
 from .so3 import *
+from .transform2d import *
 from .transform3d import *

@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings",
     "ordered-set",
     "gymnasium",
+    "opencv-python>=4",
 ]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]

@@ -19,6 +19,7 @@ import copy
 from typing import Any, Sequence
 
 import torch
+from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import (
     DataClass,
@@ -155,9 +156,7 @@ class BatchJointsState(DataClass, TensorToMixin):
                     "The length of names must match the length of position."
                 )
 
-    def concat(
-        self, others: Sequence[BatchJointsState], dim: int
-    ) -> BatchJointsState:
+    def concat(self, others: Sequence[Self], dim: int) -> Self:
         """Concatenate two BatchJointsState objects along a given dimension.
 
         Args:
@@ -241,4 +240,4 @@ class BatchJointsState(DataClass, TensorToMixin):
             timestamps, concat_dim=timestamp_condat_dim
         )
 
-        return BatchJointsState(**attr_dict)
+        return type(self)(**attr_dict)

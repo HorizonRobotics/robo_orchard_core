@@ -22,6 +22,7 @@ from typing import Callable, Literal, Sequence
 
 import deprecated
 import torch
+from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
 from robo_orchard_core.datatypes.geometry import (
@@ -30,9 +31,17 @@ from robo_orchard_core.datatypes.geometry import (
 )
 from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
+from robo_orchard_core.utils.image import (
+    ImageChannelLayout,
+    affine_mat2non_align_corners,
+    get_image_shape,
+    guess_channel_layout,
+)
+from robo_orchard_core.utils.math.transform import Transform2D_M
 from robo_orchard_core.utils.torch_utils import Device
 
 __all___ = [
+    "ImageChannelLayout",
     "Distortion",
     "CameraData",
     "BatchCameraInfo",
@@ -208,8 +217,8 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     """Data class for batched camera sensor data information.
 
     A batch of camera data shares the same image shape, distortion model.
-    The intrinsic matrices and extrinsic matrices (pose) of the cameras
-    can be different.
+    The intrinsic matrices and TransformFrame(Pose, also known as the inverse
+    extrinsic matrix) of the cameras can be different.
     """
 
     topic: str | None = None
@@ -240,8 +249,24 @@ class BatchCameraInfo(DataClass, TensorToMixin):
     pose: BatchFrameTransform | None = None
     """Frame transform of the camera sensor.
 
-    This is also known as the extrinsic matrix of the camera.
+    Usually the frame transform are camera framew.r.t. the world frame,
+    or known as the cam2World transformation, they are the same.
+
+    The inverse of the pose transformation is the extrinsic matrix
+    (world w.r.t cam), which are widely used in computer vision.
     """
+
+    @property
+    def extrinsics(self) -> TorchTensor | None:
+        """Get the extrinsic matrices of the cameras.
+
+        Returns:
+            TorchTensor | None: The extrinsic matrices of the cameras.
+            If no pose is provided, returns None.
+        """
+        if self.pose is not None:
+            return self.pose.inverse().as_Transform3D_M().get_matrix()
+        return None
 
     def __post_init__(self):
         if self.intrinsic_matrices is not None and self.pose is not None:
@@ -305,7 +330,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         assert self.pose is not None
         return self.pose.inverse().as_Transform3D_M().get_matrix()
 
-    def concat(self, others: Sequence[BatchCameraInfo]) -> BatchCameraInfo:
+    def concat(self, others: Sequence[Self]) -> Self:
         """Concatenate two BatchCameraInfo objects.
 
         Args:
@@ -357,7 +382,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             else None
         )
 
-        return BatchCameraInfo(
+        return type(self)(
             topic=self.topic,
             frame_id=self.frame_id,
             image_shape=copy.copy(self.image_shape),
@@ -384,7 +409,12 @@ class BatchCameraData(BatchCameraInfo):
 
     Shape is (B, H, W, C) for raw data, where B is the batch size, C is the
     number of channels, H is the height of the image, and W is the width
-    of the image.
+    of the image. For traning, the shape is usually (B, C, H, W).
+
+    Note that sensor_data does not restrict the channel layout, it can be
+    in HWC or CHW format.
+
+
     """
 
     pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
@@ -420,6 +450,17 @@ class BatchCameraData(BatchCameraInfo):
                 f"{self.intrinsic_matrices.shape[0]}."
             )
 
+        data_hw = get_image_shape(self.sensor_data)
+        if self.image_shape is None:
+            self.image_shape = data_hw
+        else:
+            if self.image_shape != data_hw:
+                raise ValueError(
+                    "The image shape of the sensor data does not match "
+                    "the expected image shape. "
+                    f"Expected {self.image_shape}, got {data_hw}."
+                )
+
     @property
     def batch_size(self) -> int:
         """Get the batch size.
@@ -431,7 +472,7 @@ class BatchCameraData(BatchCameraInfo):
         """
         return self.sensor_data.shape[0]
 
-    def concat(self, others: Sequence[BatchCameraData]) -> BatchCameraData:
+    def concat(self, others: Sequence[Self]) -> Self:
         # check pix_fmt
         for pix_fmt in [other.pix_fmt for other in others]:
             if pix_fmt != self.pix_fmt:
@@ -441,7 +482,7 @@ class BatchCameraData(BatchCameraInfo):
         # concat sensor_data:
         super_ret = super().concat(others)
 
-        return BatchCameraData(
+        return type(self)(
             sensor_data=torch.cat(
                 [self.sensor_data] + [other.sensor_data for other in others],  # type: ignore
                 dim=0,
@@ -452,6 +493,104 @@ class BatchCameraData(BatchCameraInfo):
             ),
             **super_ret.__dict__,
         )
+
+    @torch.no_grad()
+    def apply_transform2d(
+        self,
+        transform: Transform2D_M,
+        target_hw: tuple[int, int] | None = None,
+        inter_mode: Literal["bilinear", "nearest", "bicubic"] = "bicubic",
+        padding_mode: Literal["zeros"] = "zeros",
+    ) -> BatchCameraData:
+        """Apply a 2D transformation to the camera data.
+
+        Args:
+            transform (Transform2D_M): The transformation to apply.
+
+        Returns:
+            BatchCameraData: The transformed camera data.
+        """
+        import cv2
+
+        cv_inter_mode = None
+        if inter_mode == "bilinear":
+            cv_inter_mode = cv2.INTER_LINEAR
+        elif inter_mode == "nearest":
+            cv_inter_mode = cv2.INTER_NEAREST
+        elif inter_mode == "bicubic":
+            cv_inter_mode = cv2.INTER_CUBIC
+        else:
+            raise ValueError(
+                f"Unsupported interpolation mode: {inter_mode}. "
+                "Supported modes are: 'bilinear', 'nearest', 'bicubic'."
+            )
+
+        layout = guess_channel_layout(self.sensor_data)
+        if layout != ImageChannelLayout.HWC:
+            raise NotImplementedError(
+                "Only HWC channel layout is supported for applying "
+                "2D transformations."
+            )
+
+        if self.image_shape is None:
+            src_hw = get_image_shape(self.sensor_data)
+        else:
+            src_hw = self.image_shape
+
+        if target_hw is None:
+            target_hw = src_hw
+
+        src = self.sensor_data
+
+        trans = transform.get_matrix()
+        if trans.shape[0] != src.shape[0] and trans.shape[0] != 1:
+            raise ValueError(
+                "The transformation matrix must have the same batch size as "
+                "the camera data. "
+                f"Expected {src.shape[0]}, got {trans.shape[0]}."
+            )
+        if trans.shape[0] == 1 and src.shape[0] > 1:
+            # repeat the transformation matrix for each camera
+            trans = trans.repeat(src.shape[0], 1, 1)
+        dst = torch.zeros(
+            size=(
+                src.shape[0],
+                target_hw[0],
+                target_hw[1],
+                src.shape[-1],
+            ),
+            dtype=src.dtype,
+        )
+        dst_intrinsic = (
+            self.intrinsic_matrices.clone()
+            if self.intrinsic_matrices is not None
+            else None
+        )
+        if dst_intrinsic is not None:
+            dst_intrinsic = trans @ dst_intrinsic
+
+        non_align_corner_mat = affine_mat2non_align_corners(
+            mat=trans, src_hw=src_hw, dst_hw=target_hw
+        )
+
+        for i in range(src.shape[0]):
+            cur_img = src[i].numpy()
+            cur_dst = dst[i].numpy()
+            cur_mat = non_align_corner_mat[i].numpy()
+            cv2.warpAffine(
+                src=cur_img,
+                M=cur_mat[:2, :],
+                dsize=(target_hw[1], target_hw[0]),
+                flags=cv_inter_mode,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0,),
+                dst=cur_dst,
+            )
+        ret_dict = self.__dict__.copy()
+        ret_dict["sensor_data"] = dst
+        ret_dict["intrinsic_matrices"] = dst_intrinsic
+        ret_dict["image_shape"] = target_hw
+        return BatchCameraData(**ret_dict)
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):
@@ -560,9 +699,7 @@ class BatchCameraDataEncoded(BatchCameraInfo):
             timestamps=self.timestamps,
         )
 
-    def concat(
-        self, others: Sequence[BatchCameraDataEncoded]
-    ) -> BatchCameraDataEncoded:
+    def concat(self, others: Sequence[Self]) -> Self:
         # check pix_fmt
         for format in [other.format for other in others]:
             if format != self.format:
@@ -572,7 +709,7 @@ class BatchCameraDataEncoded(BatchCameraInfo):
         # concat sensor_data:
         super_ret = super().concat(others)
 
-        return BatchCameraDataEncoded(
+        return type(Self)(
             sensor_data=torch.cat(
                 [self.sensor_data] + [other.sensor_data for other in others],  # type: ignore
                 dim=0,
