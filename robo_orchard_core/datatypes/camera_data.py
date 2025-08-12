@@ -25,6 +25,7 @@ import torch
 from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
+from robo_orchard_core.datatypes.enum import StrEnum
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
     FrameTransform,
@@ -42,12 +43,48 @@ from robo_orchard_core.utils.torch_utils import Device
 
 __all___ = [
     "ImageChannelLayout",
+    "ImageMode",
     "Distortion",
     "CameraData",
     "BatchCameraInfo",
+    "BatchImageData",
     "BatchCameraData",
     "BatchCameraDataEncoded",
 ]
+
+
+class ImageMode(StrEnum):
+    """Image mode describing the pixel format of the image.
+
+    We use PIL Image mode as the reference, see:
+        https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes
+
+    We also extend the mode to support other formats that are commonly used in
+    computer vision, such as BGR.
+
+    """
+
+    # mode from PIL:
+    BIT = "1"
+    """1-bit pixels, black and white, stored with one pixel per byte."""
+    L = "L"
+    """8-bit pixels, grayscale."""
+    LA = "LA"
+    """L with alpha."""
+    RGB = "RGB"
+    """3x8-bit pixels, true color"""
+    RGBA = "RGBA"
+    """4x8-bit pixels, true color with transparency mask"""
+    I = "I"  # noqa: E741
+    """32-bit signed integer pixels"""
+    I16 = "I;16"
+    """16-bit unsigned integer pixels"""
+    F = "F"
+    """32-bit floating point pixels"""
+
+    # mode from Others:
+    BGR = "BGR"
+    """3x8-bit pixels, true color"""
 
 
 class Distortion(DataClass, TensorToMixin):
@@ -269,6 +306,7 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         return None
 
     def __post_init__(self):
+        super().__post_init__()
         if self.intrinsic_matrices is not None and self.pose is not None:
             if self.intrinsic_matrices.shape[0] != self.pose.batch_size:
                 raise ValueError(
@@ -392,16 +430,10 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         )
 
 
-class BatchCameraData(BatchCameraInfo):
+class BatchImageData(DataClass):
     """Data class for batched camera sensor data.
 
-    BatchCameraData extends BatchCameraDataInfo to include the actual
-    sensor data in tensor format.
-
-    A batch of camera data shares the same image shape, distortion model.
-    The intrinsic matrices and extrinsic matrices (pose) of the cameras
-    can be different.
-
+    BatchCameraDataMixin includes the actual sensor data in tensor format.
     """
 
     sensor_data: TorchTensor
@@ -417,11 +449,29 @@ class BatchCameraData(BatchCameraInfo):
 
     """
 
-    pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
+    pix_fmt: ImageMode | None = None
     """Pixel format."""
 
     timestamps: list[int] | None = None
     """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
+
+    @property
+    def channel_layout(self) -> ImageChannelLayout:
+        """Try to get the channel layout of the sensor data."""
+        return guess_channel_layout(self.sensor_data)
+
+
+class BatchCameraData(BatchCameraInfo, BatchImageData):
+    """Data class for batched camera sensor data.
+
+    BatchCameraData extends BatchCameraDataInfo to include the actual
+    sensor data in tensor format.
+
+    A batch of camera data shares the same image shape, distortion model.
+    The intrinsic matrices and extrinsic matrices (pose) of the cameras
+    can be different.
+
+    """
 
     def __post_init__(self):
         super().__post_init__()
@@ -501,8 +551,12 @@ class BatchCameraData(BatchCameraInfo):
         target_hw: tuple[int, int] | None = None,
         inter_mode: Literal["bilinear", "nearest", "bicubic"] = "bicubic",
         padding_mode: Literal["zeros"] = "zeros",
-    ) -> BatchCameraData:
+    ) -> Self:
         """Apply a 2D transformation to the camera data.
+
+        This method applies a 2D transformation to the intrinsic matrices
+        as well to keep the projection matrix consistent with the
+        transformed sensor data.
 
         Args:
             transform (Transform2D_M): The transformation to apply.
@@ -528,8 +582,8 @@ class BatchCameraData(BatchCameraInfo):
         layout = guess_channel_layout(self.sensor_data)
         if layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
-                "Only HWC channel layout is supported for applying "
-                "2D transformations."
+                "Only HWC channel layout is supported for "
+                "applying 2D transformations."
             )
 
         if self.image_shape is None:
@@ -590,7 +644,7 @@ class BatchCameraData(BatchCameraInfo):
         ret_dict["sensor_data"] = dst
         ret_dict["intrinsic_matrices"] = dst_intrinsic
         ret_dict["image_shape"] = target_hw
-        return BatchCameraData(**ret_dict)
+        return type(self)(**ret_dict)
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):
@@ -653,18 +707,16 @@ class BatchCameraDataEncoded(BatchCameraInfo):
 
     def decode(
         self,
-        decoder: Callable[[bytes, str], TorchTensor],
-        pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None,
+        decoder: Callable[[bytes, str], BatchImageData],
         device: Device = "cpu",
     ) -> BatchCameraData:
         """Decode the compressed sensor data to a BatchCameraData.
 
         Args:
-            decoder (Callable[[bytes, str], TorchTensor]): The decoder
+            decoder (Callable[[bytes, str], BatchImageData]): The decoder
                 function to decode the compressed data. It should take
-                a byte string and the format as input and return a tensor.
-            pix_fmt (Literal["rgb", "bgr", "gray", "depth"] | None, optional):
-                The pixel format of the decoded data. Defaults to None.
+                a byte string and the format as input and return
+                BatchImageData.
             device (Device, optional): The device to put the decoded data on.
                 Defaults to "cpu".
 
@@ -674,7 +726,10 @@ class BatchCameraDataEncoded(BatchCameraInfo):
         decoded_data = [
             decoder(data, self.format) for data in self.sensor_data
         ]
-        sensor_data = torch.stack(decoded_data, dim=0).to(device)
+        sensor_data = torch.cat(
+            [d.sensor_data for d in decoded_data], dim=0
+        ).to(device)
+
         image_shape = self.image_shape
         if image_shape is None:
             image_shape = (sensor_data.shape[1], sensor_data.shape[2])
@@ -686,6 +741,8 @@ class BatchCameraDataEncoded(BatchCameraInfo):
                     f"Expected {self.image_shape}, got "
                     f"({sensor_data.shape[1]}, {sensor_data.shape[2]})"
                 )
+        # use the pix_fmt in the first decoded data
+        pix_fmt = decoded_data[0].pix_fmt
 
         return BatchCameraData(
             topic=self.topic,

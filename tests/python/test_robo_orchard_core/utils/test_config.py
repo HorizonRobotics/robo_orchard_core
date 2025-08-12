@@ -17,7 +17,9 @@
 
 import functools
 
+import numpy as np
 import pytest
+import torch
 
 from robo_orchard_core.utils.config import (
     CallableConfig,
@@ -26,6 +28,8 @@ from robo_orchard_core.utils.config import (
     ClassInitFromConfigMixin,
     ClassType,
     Config,
+    NumpyTensor,
+    TorchTensor,
 )
 
 
@@ -262,6 +266,35 @@ class TestCascadeClassConfig:
                 "int_value": 300,
             },
         }
+
+
+class TensorConfig(Config):
+    np_tensor: NumpyTensor | None = None
+    torch_tensor: TorchTensor | None = None
+
+
+class TestTensorConfig:
+    def test_np_tensor(self):
+        np_tensor = np.array([[1, 2.22], [3, 4]])
+        config = TensorConfig(np_tensor=np_tensor, torch_tensor=None)
+        assert isinstance(config.np_tensor, np.ndarray)
+
+        json_str = config.to_str(format="json")
+        new_config = TensorConfig.from_str(json_str, format="json")
+        print("json_str:", json_str)
+        assert isinstance(new_config.np_tensor, np.ndarray)
+        assert np.array_equal(new_config.np_tensor, np_tensor)
+
+    def test_torch_tensor(self):
+        torch_tensor = torch.tensor([[1, 2.22], [3, 4]])
+        config = TensorConfig(np_tensor=None, torch_tensor=torch_tensor)
+        assert isinstance(config.torch_tensor, torch.Tensor)
+
+        json_str = config.to_str(format="json")
+        new_config = TensorConfig.from_str(json_str, format="json")
+        print("json_str:", json_str)
+        assert isinstance(new_config.torch_tensor, torch.Tensor)
+        assert torch.equal(new_config.torch_tensor, torch_tensor)
 
 
 if __name__ == "__main__":

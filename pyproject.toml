@@ -7,6 +7,8 @@ authors = [{ name = "The RoboOrchard Team" }]
 dependencies = [
     "rtoml",
     "pyyaml",
+    "numpy",
+    "numpydantic",
     "deprecated",
     "torch",
     "pydantic<=2.10.6",

@@ -25,9 +25,11 @@ import typing
 from copy import deepcopy
 from typing import Annotated, Any, Generic, Literal, Type
 
+# import numpy as np
 import rtoml as toml
 import torch
 import yaml
+from numpydantic import NDArray
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -37,7 +39,10 @@ from pydantic import (
     ValidatorFunctionWrapHandler,
 )
 from pydantic.functional_serializers import PlainSerializer, model_serializer
-from pydantic.functional_validators import PlainValidator, model_validator
+from pydantic.functional_validators import (
+    PlainValidator,
+    model_validator,
+)
 from pydantic_core import core_schema, from_json, to_json
 from typing_extensions import Callable, ParamSpec, Self, TypeVar
 
@@ -262,6 +267,11 @@ TorchTensor = Annotated[
 ]
 
 
+# use NDArray of numpydantic to implement TorchTensor
+
+NumpyTensor = NDArray
+
+
 class Config(BaseModel):
     """Base class for configuration classes."""
 
@@ -413,6 +423,7 @@ class Config(BaseModel):
         exclude_defaults: bool = False,
         exclude_none: bool = False,
         include_config_type: bool = True,
+        round_trip: bool = False,
         **kwargs,
     ) -> str:
         """Converts the configuration to a string.
@@ -440,6 +451,10 @@ class Config(BaseModel):
                 annotation, not the actual deserialized class type! This will
                 break the consistency of serialization and deserialization.
                 Default is True.
+            round_trip (bool, optional): If True, the serialization will
+                preserve the original data types as much as possible. This is
+                useful for round-trip serialization and deserialization.
+                Default is False.
             **kwargs: Additional keyword arguments to be passed to the
                 serialization method :meth:`BaseModel.model_dump_json`.
 
@@ -455,6 +470,7 @@ class Config(BaseModel):
             context={
                 "exclude_config_type": not include_config_type,
             },
+            round_trip=round_trip,
             **kwargs,
         )
 

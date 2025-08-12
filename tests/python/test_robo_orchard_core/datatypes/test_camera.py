@@ -21,7 +21,11 @@ import numpy as np
 import pytest
 import torch
 
-from robo_orchard_core.datatypes.camera_data import BatchCameraData, Distortion
+from robo_orchard_core.datatypes.camera_data import (
+    BatchCameraData,
+    Distortion,
+    ImageMode,
+)
 from robo_orchard_core.utils.math.transform import (
     Rotate2D,
     Scale2D,
@@ -55,7 +59,7 @@ class TestBatchCameraData:
     def test_to_dict(self):
         a = BatchCameraData(
             sensor_data=torch.rand(size=(2, 12, 11, 3), dtype=torch.float32),
-            pix_fmt="bgr",
+            pix_fmt=ImageMode.BGR,
             # with distortion
             distortion=Distortion(
                 model="plumb_bob",

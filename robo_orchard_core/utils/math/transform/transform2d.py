@@ -72,8 +72,8 @@ class Transform2D_M:
         else:
             if matrix.ndim not in (2, 3):
                 raise ValueError(
-                    "Matrix must be 2D or 3D tensor, got shape: "
-                    f"{matrix.shape}"
+                    "Matrix must be 2D or 3D tensor, "
+                    f"got shape: {matrix.shape}"
                 )
             if matrix.shape[-2] != 3 or matrix.shape[-1] != 3:
                 raise ValueError(
@@ -497,10 +497,16 @@ class Rotate2D(Transform2D_M):
         ]
 
     Args:
-        angle: A float, list, or tensor of shape (N,) representing the rotation
-            angle in radians. If a list or tensor is provided, it should be of
-            shape (N,). The angle value should be in radians.
-
+        angle (float | Sequence[float] | torch.Tensor): A float, list, or
+            tensor of shape (N,) representing the rotation angle in radians.
+            If a list or tensor is provided, it should be of shape (N,). The
+            angle value should be in radians.
+        axis (Literal["Z", "-Z"]): The axis of rotation. In opencv, the
+            rotation transformation describes the transform from the image
+            to new image, which is inverse of the rotation transformation
+            for coordinates. To match the behavior of opencv image rotation,
+            the axis should be `-Z` for counter-clockwise rotation of image.
+            Defaults to "Z".
     """
 
     def __init__(
