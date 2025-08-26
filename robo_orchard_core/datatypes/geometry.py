@@ -336,7 +336,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
                 t01=other.xyz,
                 q01=other.quat,
             )
-        return type(self)(xyz=t, quat=q)
+        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
 
     def subtract(self, other: Self) -> Self:
         """Subtract transformations with another.
@@ -362,7 +362,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t02=self.xyz,
             q02=self.quat,
         )
-        return type(self)(xyz=t, quat=q)
+        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
 
     def inverse(self) -> Self:
         """Get the inverse of the transformations.
@@ -372,7 +372,9 @@ class BatchTransform3D(DataClass, TensorToMixin):
         """
         q_inv = math_utils.quaternion_invert(self.quat)
         return type(self)(
-            xyz=math_utils.quaternion_apply_point(q_inv, -self.xyz), quat=q_inv
+            xyz=math_utils.quaternion_apply_point(q_inv, -self.xyz),
+            quat=q_inv,
+            timestamps=self.timestamps,
         )
 
     def translate(self, translation: TorchTensor) -> Self:
@@ -389,7 +391,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t01=translation,
             q01=torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.xyz.device),
         )
-        return type(self)(xyz=t, quat=q)
+        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
 
     def rotate(self, axis_angle: TorchTensor) -> Self:
         """Rotate the transformations by an axis-angle rotation.
@@ -407,11 +409,11 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t01=torch.tensor([0.0, 0.0, 0.0], device=self.xyz.device),
             q01=q_new,
         )
-        return type(self)(xyz=t, quat=q)
+        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
 
     def repeat(
         self, batch_size: int, timestamps: list[int] | None = None
-    ) -> BatchTransform3D:
+    ) -> Self:
         """Repeat the transformation with batch size 1 to batch size N.
 
         Args:
@@ -433,13 +435,14 @@ class BatchTransform3D(DataClass, TensorToMixin):
                 f"the batch size {batch_size}."
             )
 
-        return BatchTransform3D(
+        return type(self)(
             xyz=xyz.repeat(batch_size, 1),
             quat=quat.repeat(batch_size, 1),
             timestamps=timestamps,
         )
 
-    def concat(self, others: Sequence[Self]) -> Self:
+    @classmethod
+    def concat(cls, all: Sequence[Self]) -> Self:
         """Concatenate two BatchTransform3D objects along batch dimension.
 
         Args:
@@ -449,14 +452,10 @@ class BatchTransform3D(DataClass, TensorToMixin):
         Returns:
             BatchTransform3D: A new BatchTransform3D with concatenated data.
         """
-        return type(self)(
-            xyz=torch.cat([self.xyz] + [other.xyz for other in others], dim=0),
-            quat=torch.cat(
-                [self.quat] + [other.quat for other in others], dim=0
-            ),
-            timestamps=concat_timestamps(
-                [self.timestamps] + [other.timestamps for other in others]
-            ),
+        return cls(
+            xyz=torch.cat([other.xyz for other in all], dim=0),
+            quat=torch.cat([other.quat for other in all], dim=0),
+            timestamps=concat_timestamps([other.timestamps for other in all]),
         )
 
 
@@ -619,26 +618,28 @@ class BatchPose(BatchTransform3D):
             )
 
         p = super().inverse()
+
         return type(self)(frame_id=frame_id, **p.__dict__)
 
-    def concat(self, others: list[Self]) -> Self:
+    @classmethod
+    def concat(cls, all: list[Self]) -> Self:
         """Concatenate two BatchPose objects along batch dimension.
 
         Args:
-            other (BatchPose): The other BatchPose to concatenate.
+            all (BatchPose): The BatchPose to concatenate.
 
         Returns:
             BatchPose: A new BatchPose with concatenated data.
         """
         # check that frame id is all None or all the same
-        for frame_id in [other.frame_id for other in others]:
-            if frame_id != self.frame_id:
+        for frame_id in [other.frame_id for other in all]:
+            if frame_id != all[0].frame_id:
                 raise ValueError(
                     "All BatchPose objects must have the same frame_id."
                 )
-        super_ret = super().concat(others)
-        return type(self)(
-            frame_id=self.frame_id,
+        super_ret = super().concat(all)
+        return cls(
+            frame_id=all[0].frame_id,
             **super_ret.__dict__,
         )
 
@@ -758,11 +759,12 @@ class BatchFrameTransform(BatchTransform3D):
             **p.__dict__,
         )
 
-    def concat(self, others: Sequence[Self]) -> Self:
+    @classmethod
+    def concat(cls, all: Sequence[Self]) -> Self:
         """Concatenate two BatchFrameTransform objects along batch dimension.
 
         Args:
-            other (BatchFrameTransform): The other BatchFrameTransform
+            all (BatchFrameTransform): The all BatchFrameTransform
                 to concatenate.
 
         Returns:
@@ -770,6 +772,9 @@ class BatchFrameTransform(BatchTransform3D):
                 data.
         """
         # check that frame id is all None or all the same
+        self = all[0]
+        others = all[1:]
+
         for frame_id in [other.parent_frame_id for other in others]:
             if frame_id != self.parent_frame_id:
                 raise ValueError(
@@ -782,8 +787,11 @@ class BatchFrameTransform(BatchTransform3D):
                     "All BatchFrameTransform objects must have the same "
                     "child_frame_id."
                 )
-        super_ret = super().concat(others)
-        return type(self)(
+
+        # get super class type
+        super_ret = BatchTransform3D.concat(all)
+
+        return cls(
             parent_frame_id=self.parent_frame_id,
             child_frame_id=self.child_frame_id,
             **super_ret.__dict__,

@@ -11,6 +11,7 @@ dependencies = [
     "numpydantic",
     "deprecated",
     "torch",
+    "fsspec",
     "pydantic<=2.10.6",
     "pydantic-settings",
     "ordered-set",

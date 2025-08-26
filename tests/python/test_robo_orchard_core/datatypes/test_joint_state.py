@@ -85,3 +85,99 @@ class TestBatchJointsState:
                 effort=effort,
                 names=names,
             )
+
+    def test_getitem_int(self):
+        # Test with all attributes
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [2.0, 3.0]]),
+            velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 2],
+        )
+        t = joints_state[0]
+        assert isinstance(t, BatchJointsState)
+        assert t.position.shape == (1, 2)  # type: ignore
+        assert t.velocity.shape == (1, 2)  # type: ignore
+        assert t.names == ["joint1", "joint2"]  # type: ignore
+        assert t.timestamps == [1]
+
+    def test_getitem_slice(self):
+        # Test with all attributes
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [2.0, 3.0]]),
+            velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 2],
+        )
+        t = joints_state[0:2]
+        assert t == joints_state
+
+    def test_getitem_2d(self):
+        # Test with all attributes
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [2.0, 3.0]]),
+            velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 2],
+        )
+        t = joints_state[0, 1]
+        assert isinstance(t, BatchJointsState)
+        assert t.position.shape == (1, 1)  # type: ignore
+        assert t.velocity.shape == (1, 1)  # type: ignore
+        assert t.names == ["joint2"]  # type: ignore
+        assert t.timestamps == [1]
+
+    def test_getitem_1d_list(self):
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [2.0, 3.0]]),
+            velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 2],
+        )
+
+        t = joints_state[[0, 1]]
+        assert t == joints_state
+        t1 = joints_state[[0, 1], :]
+        assert t == t1
+
+    def test_getitem_2d_list(self):
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [2.0, 3.0]]),
+            velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 2],
+        )
+        with pytest.raises(IndexError):
+            _ = joints_state[[0, 1], [0, 1]]
+
+    def test_update_velocity(self):
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [4.0, 3.0]]),
+            # velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 2],
+        )
+        assert joints_state.update_velocity()
+        assert joints_state.update_velocity() is False
+        assert joints_state.velocity is not None
+        assert torch.allclose(
+            joints_state.velocity,
+            torch.tensor([[0.0, 0.0], [4.0 * 1e9, 2.0 * 1e9]]),
+            atol=1e-6,
+        )
+
+    def test_update_velocity_handle_zero_dt(self):
+        joints_state = BatchJointsState(
+            position=torch.tensor([[0.0, 1.0], [4.0, 3.0]]),
+            # velocity=torch.tensor([[0.1, 0.2], [0.3, 0.4]]),
+            names=["joint1", "joint2"],
+            timestamps=[1, 1],
+        )
+        assert joints_state.update_velocity()
+        assert joints_state.update_velocity() is False
+        assert joints_state.velocity is not None
+        assert torch.allclose(
+            joints_state.velocity,
+            torch.tensor([[0.0, 0.0], [0, 0]]),
+            atol=1e-6,
+        )

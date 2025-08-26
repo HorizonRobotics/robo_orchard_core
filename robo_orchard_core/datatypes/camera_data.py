@@ -368,7 +368,8 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         assert self.pose is not None
         return self.pose.inverse().as_Transform3D_M().get_matrix()
 
-    def concat(self, others: Sequence[Self]) -> Self:
+    @classmethod
+    def concat(cls, all: Sequence[Self]) -> Self:
         """Concatenate two BatchCameraInfo objects.
 
         Args:
@@ -378,6 +379,9 @@ class BatchCameraInfo(DataClass, TensorToMixin):
         Returns:
             BatchCameraInfo: The concatenated BatchCameraInfo object.
         """
+        self = all[0]
+        others = all[1:]
+
         for topic in [other.topic for other in others]:
             if topic != self.topic:
                 raise ValueError(
@@ -415,12 +419,12 @@ class BatchCameraInfo(DataClass, TensorToMixin):
             else None
         )
         pose = (
-            self.pose.concat([other.pose for other in others])  # type: ignore
+            type(self.pose).concat([other.pose for other in all])  # type: ignore
             if self.pose is not None
             else None
         )
 
-        return type(self)(
+        return cls(
             topic=self.topic,
             frame_id=self.frame_id,
             image_shape=copy.copy(self.image_shape),
@@ -455,10 +459,121 @@ class BatchImageData(DataClass):
     timestamps: list[int] | None = None
     """Timestamps of the camera data in nanoseconds(1e-9 seconds)."""
 
+    @classmethod
+    def concat(cls, all: Sequence[Self]) -> Self:
+        self = all[0]
+        others = all[1:]
+        # check pix_fmt
+        for pix_fmt in [other.pix_fmt for other in others]:
+            if pix_fmt != self.pix_fmt:
+                raise ValueError(
+                    "All BatchCameraData objects must have the same pix_fmt."
+                )
+
+        return cls(
+            sensor_data=torch.cat(
+                [other.sensor_data for other in all],
+                dim=0,
+            ),
+            pix_fmt=copy.copy(self.pix_fmt),
+            timestamps=concat_timestamps([other.timestamps for other in all]),
+        )
+
     @property
     def channel_layout(self) -> ImageChannelLayout:
         """Try to get the channel layout of the sensor data."""
         return guess_channel_layout(self.sensor_data)
+
+    @torch.no_grad()
+    def apply_transform2d(
+        self,
+        transform: Transform2D_M,
+        target_hw: tuple[int, int] | None = None,
+        inter_mode: Literal["bilinear", "nearest", "bicubic"] = "bicubic",
+        padding_mode: Literal["zeros"] = "zeros",
+    ) -> Self:
+        """Apply a 2D transformation to the camera data.
+
+        This method applies a 2D transformation to the intrinsic matrices
+        as well to keep the projection matrix consistent with the
+        transformed sensor data.
+
+        Args:
+            transform (Transform2D_M): The transformation to apply.
+
+        Returns:
+            BatchCameraData: The transformed camera data.
+        """
+        import cv2
+
+        cv_inter_mode = None
+        if inter_mode == "bilinear":
+            cv_inter_mode = cv2.INTER_LINEAR
+        elif inter_mode == "nearest":
+            cv_inter_mode = cv2.INTER_NEAREST
+        elif inter_mode == "bicubic":
+            cv_inter_mode = cv2.INTER_CUBIC
+        else:
+            raise ValueError(
+                f"Unsupported interpolation mode: {inter_mode}. "
+                "Supported modes are: 'bilinear', 'nearest', 'bicubic'."
+            )
+
+        layout = guess_channel_layout(self.sensor_data)
+        if layout != ImageChannelLayout.HWC:
+            raise NotImplementedError(
+                "Only HWC channel layout is supported for applying "
+                "2D transformations."
+            )
+
+        src_hw = get_image_shape(self.sensor_data)
+
+        if target_hw is None:
+            target_hw = src_hw
+
+        src = self.sensor_data
+
+        trans = transform.get_matrix()
+        if trans.shape[0] != src.shape[0] and trans.shape[0] != 1:
+            raise ValueError(
+                "The transformation matrix must have the same batch size as "
+                "the camera data. "
+                f"Expected {src.shape[0]}, got {trans.shape[0]}."
+            )
+        if trans.shape[0] == 1 and src.shape[0] > 1:
+            # repeat the transformation matrix for each camera
+            trans = trans.repeat(src.shape[0], 1, 1)
+        dst = torch.zeros(
+            size=(
+                src.shape[0],
+                target_hw[0],
+                target_hw[1],
+                src.shape[-1],
+            ),
+            dtype=src.dtype,
+        )
+
+        non_align_corner_mat = affine_mat2non_align_corners(
+            mat=trans, src_hw=src_hw, dst_hw=target_hw
+        )
+
+        for i in range(src.shape[0]):
+            cur_img = src[i].numpy()
+            cur_dst = dst[i].numpy()
+            cur_mat = non_align_corner_mat[i].numpy()
+            cv2.warpAffine(
+                src=cur_img,
+                M=cur_mat[:2, :],
+                dsize=(target_hw[1], target_hw[0]),
+                flags=cv_inter_mode,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0,),
+                dst=cur_dst,
+            )
+
+        ret = self.model_copy(deep=False)
+        ret.sensor_data = dst
+        return ret
 
 
 class BatchCameraData(BatchCameraInfo, BatchImageData):
@@ -522,27 +637,13 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         """
         return self.sensor_data.shape[0]
 
-    def concat(self, others: Sequence[Self]) -> Self:
-        # check pix_fmt
-        for pix_fmt in [other.pix_fmt for other in others]:
-            if pix_fmt != self.pix_fmt:
-                raise ValueError(
-                    "All BatchCameraData objects must have the same pix_fmt."
-                )
-        # concat sensor_data:
-        super_ret = super().concat(others)
+    @classmethod
+    def concat(cls, all: Sequence[Self]) -> Self:
+        data_dict = {}
+        data_dict.update(BatchCameraInfo.concat(all).__dict__)
+        data_dict.update(BatchImageData.concat(all).__dict__)
 
-        return type(self)(
-            sensor_data=torch.cat(
-                [self.sensor_data] + [other.sensor_data for other in others],  # type: ignore
-                dim=0,
-            ),
-            pix_fmt=copy.copy(self.pix_fmt),
-            timestamps=concat_timestamps(
-                [self.timestamps] + [other.timestamps for other in others],
-            ),
-            **super_ret.__dict__,
-        )
+        return cls(**data_dict)
 
     @torch.no_grad()
     def apply_transform2d(
@@ -564,36 +665,6 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         Returns:
             BatchCameraData: The transformed camera data.
         """
-        import cv2
-
-        cv_inter_mode = None
-        if inter_mode == "bilinear":
-            cv_inter_mode = cv2.INTER_LINEAR
-        elif inter_mode == "nearest":
-            cv_inter_mode = cv2.INTER_NEAREST
-        elif inter_mode == "bicubic":
-            cv_inter_mode = cv2.INTER_CUBIC
-        else:
-            raise ValueError(
-                f"Unsupported interpolation mode: {inter_mode}. "
-                "Supported modes are: 'bilinear', 'nearest', 'bicubic'."
-            )
-
-        layout = guess_channel_layout(self.sensor_data)
-        if layout != ImageChannelLayout.HWC:
-            raise NotImplementedError(
-                "Only HWC channel layout is supported for "
-                "applying 2D transformations."
-            )
-
-        if self.image_shape is None:
-            src_hw = get_image_shape(self.sensor_data)
-        else:
-            src_hw = self.image_shape
-
-        if target_hw is None:
-            target_hw = src_hw
-
         src = self.sensor_data
 
         trans = transform.get_matrix()
@@ -606,15 +677,6 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         if trans.shape[0] == 1 and src.shape[0] > 1:
             # repeat the transformation matrix for each camera
             trans = trans.repeat(src.shape[0], 1, 1)
-        dst = torch.zeros(
-            size=(
-                src.shape[0],
-                target_hw[0],
-                target_hw[1],
-                src.shape[-1],
-            ),
-            dtype=src.dtype,
-        )
         dst_intrinsic = (
             self.intrinsic_matrices.clone()
             if self.intrinsic_matrices is not None
@@ -622,29 +684,19 @@ class BatchCameraData(BatchCameraInfo, BatchImageData):
         )
         if dst_intrinsic is not None:
             dst_intrinsic = trans @ dst_intrinsic
-
-        non_align_corner_mat = affine_mat2non_align_corners(
-            mat=trans, src_hw=src_hw, dst_hw=target_hw
-        )
-
-        for i in range(src.shape[0]):
-            cur_img = src[i].numpy()
-            cur_dst = dst[i].numpy()
-            cur_mat = non_align_corner_mat[i].numpy()
-            cv2.warpAffine(
-                src=cur_img,
-                M=cur_mat[:2, :],
-                dsize=(target_hw[1], target_hw[0]),
-                flags=cv_inter_mode,
-                borderMode=cv2.BORDER_CONSTANT,
-                borderValue=(0,),
-                dst=cur_dst,
+        updated_dict = (
+            super()
+            .apply_transform2d(
+                transform=transform,
+                target_hw=target_hw,
+                inter_mode=inter_mode,
+                padding_mode=padding_mode,
             )
-        ret_dict = self.__dict__.copy()
-        ret_dict["sensor_data"] = dst
-        ret_dict["intrinsic_matrices"] = dst_intrinsic
-        ret_dict["image_shape"] = target_hw
-        return type(self)(**ret_dict)
+            .__dict__
+        )
+        updated_dict["intrinsic_matrices"] = dst_intrinsic
+        updated_dict["image_shape"] = target_hw
+        return self.model_copy(update=updated_dict, deep=False)
 
 
 class BatchCameraDataEncoded(BatchCameraInfo):
@@ -756,24 +808,22 @@ class BatchCameraDataEncoded(BatchCameraInfo):
             timestamps=self.timestamps,
         )
 
-    def concat(self, others: Sequence[Self]) -> Self:
-        # check pix_fmt
+    @classmethod
+    def concat(cls, all: Sequence[Self]) -> Self:
+        # concat sensor_data:
+        super_ret = BatchCameraInfo.concat(all)
+        self = all[0]
+        others = all[1:]
         for format in [other.format for other in others]:
             if format != self.format:
                 raise ValueError(
                     "All BatchCameraDataEncoded objects must have the same format."  # noqa: E501
                 )
-        # concat sensor_data:
-        super_ret = super().concat(others)
-
-        return type(Self)(
-            sensor_data=torch.cat(
-                [self.sensor_data] + [other.sensor_data for other in others],  # type: ignore
-                dim=0,
-            ),
+        sensor_data = []
+        [sensor_data.extend(other.sensor_data) for other in all]
+        return cls(
+            sensor_data=sensor_data,
             format=copy.copy(self.format),
-            timestamps=concat_timestamps(
-                [self.timestamps] + [other.timestamps for other in others],
-            ),
+            timestamps=concat_timestamps([other.timestamps for other in all]),
             **super_ret.__dict__,
         )

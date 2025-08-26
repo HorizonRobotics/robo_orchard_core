@@ -156,11 +156,12 @@ class BatchJointsState(DataClass, TensorToMixin):
                     "The length of names must match the length of position."
                 )
 
-    def concat(self, others: Sequence[Self], dim: int) -> Self:
+    @classmethod
+    def concat(cls, all: Sequence[Self], dim: int) -> Self:
         """Concatenate two BatchJointsState objects along a given dimension.
 
         Args:
-            other (BatchJointsState): The other BatchJointsState
+            all (BatchJointsState): The other BatchJointsState
                 to concatenate.
             dim (int): The dimension along which to concatenate. This can be
                 0 (batch dimension), -1 (joint dimension), or 1 (joint
@@ -171,14 +172,14 @@ class BatchJointsState(DataClass, TensorToMixin):
         """
 
         assert dim in [0, -1, 1], "dim must be 0, -1, or 1."
-        if len(others) == 0:
+        if len(all) < 2:
             raise ValueError(
                 "At least one other BatchJointsState must be provided."
             )
-        for other in others:
+        for other in all:
             if not isinstance(other, BatchJointsState):
                 raise TypeError(
-                    "other must be an instance of BatchJointsState"
+                    "instance must be an instance of BatchJointsState"
                 )
 
         attr_dict: dict[str, Any] = {
@@ -186,9 +187,11 @@ class BatchJointsState(DataClass, TensorToMixin):
             "velocity": None,
             "effort": None,
         }
+        self = all[0]
+        others = all[1:]
         for attr in attr_dict:
             # if self has no value for this attribute, skip it
-            if (self_v := getattr(self, attr)) is None:
+            if (self_v := getattr(all[0], attr)) is None:
                 attr_dict[attr] = None
                 continue
             # otherwise, check that all others have the same attribute
@@ -240,4 +243,91 @@ class BatchJointsState(DataClass, TensorToMixin):
             timestamps, concat_dim=timestamp_condat_dim
         )
 
-        return type(self)(**attr_dict)
+        return cls(**attr_dict)
+
+    def __getitem__(self, idx: int | slice | list[int] | tuple) -> Self:
+        """Get a slice of the BatchJointsState."""
+        if isinstance(idx, tuple) and len(idx) != 2:
+            raise ValueError(
+                "BatchJointsState can only be indexed at most by two dim!"
+            )
+        # extend idx to two dim!
+        if not isinstance(idx, tuple):
+            idx = (idx, slice(None))
+
+        # convert all int index to slice
+        idx = tuple(slice(i, i + 1) if isinstance(i, int) else i for i in idx)
+
+        # do not allow 2D list indexing
+        if isinstance(idx[0], (list, tuple)) and isinstance(
+            idx[1], (list, tuple)
+        ):
+            raise IndexError(
+                "2D Take indexing is not supported for BatchJointsState."
+            )
+
+        ret_dict = {}
+        for key in ["position", "velocity", "effort"]:
+            if getattr(self, key) is not None:
+                ret_dict[key] = getattr(self, key)[idx]
+
+        ret = type(self)(**ret_dict)
+        if self.names is not None:
+            s = idx[1]
+            if isinstance(s, slice):
+                ret.names = self.names[s]
+            elif isinstance(s, list):
+                ret.names = [self.names[i] for i in s]
+            else:
+                raise RuntimeError(
+                    "BatchJointsState can only be indexed by slice or list!"
+                )
+
+        if self.timestamps is not None:
+            s = idx[0]
+            if isinstance(s, slice):
+                ret.timestamps = self.timestamps[s]
+            elif isinstance(s, list):
+                ret.timestamps = [self.timestamps[i] for i in s]
+            else:
+                raise RuntimeError(
+                    "BatchJointsState can only be indexed by slice or list!"
+                )
+        return ret
+
+    def update_velocity(self, override: bool = False) -> bool:
+        """Update the velocity of the joint state from the position and timestamps.
+
+        Args:
+            override (bool): If True, override the existing velocity. If False,
+                only update if velocity is not already set.
+
+        Returns:
+            bool: True if velocity was updated, False otherwise.
+
+        """  # noqa: E501
+        if self.timestamps is None:
+            return False
+        if self.position is None:
+            return False
+        if self.velocity is not None and not override:
+            return False
+        if self.velocity is None:
+            self.velocity = torch.zeros_like(self.position)
+
+        # Calculate the time difference between consecutive timestamps
+        dt = torch.tensor(
+            [
+                (self.timestamps[i + 1] - self.timestamps[i]) / 1e9
+                for i in range(len(self.timestamps) - 1)
+            ],
+            dtype=self.position.dtype,
+            device=self.position.device,
+        )
+        # handle the case where element in dt is zero, set it to inf
+        dt[dt == 0] = torch.inf
+        self.velocity[1:, ...] = (
+            self.position[1:, ...] - self.position[:-1, ...]
+        ) / dt.unsqueeze(-1)
+
+        return True

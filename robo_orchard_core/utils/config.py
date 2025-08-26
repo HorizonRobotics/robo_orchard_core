@@ -23,9 +23,9 @@ import inspect
 import io
 import typing
 from copy import deepcopy
-from typing import Annotated, Any, Generic, Literal, Type
+from typing import Annotated, Any, Generic, Literal, Type, overload
 
-# import numpy as np
+import fsspec
 import rtoml as toml
 import torch
 import yaml
@@ -38,7 +38,11 @@ from pydantic import (
     SerializerFunctionWrapHandler,
     ValidatorFunctionWrapHandler,
 )
-from pydantic.functional_serializers import PlainSerializer, model_serializer
+from pydantic.functional_serializers import (
+    PlainSerializer,
+    WrapSerializer,
+    model_serializer,
+)
 from pydantic.functional_validators import (
     PlainValidator,
     model_validator,
@@ -660,7 +664,7 @@ ConfigT = TypeVar("ConfigT", bound=Config)
 
 def load_config_class(
     data: str | dict, format: Literal["json", "toml", "yaml"] = "json"
-) -> Config:
+) -> Any:
     """Loads the configuration class from a JSON string or dictionary.
 
     Args:
@@ -689,7 +693,59 @@ def load_config_class(
     raise ValueError("The input data is not a dictionary or string.")
 
 
+@overload
+def load_from(path: str, ensure_type: None = None) -> Any:
+    pass
+
+
+@overload
+def load_from(path: str, ensure_type: type[ConfigT]) -> ConfigT:
+    pass
+
+
+def load_from(path: str, ensure_type: type[ConfigT] | None = None) -> ConfigT:
+    """Loads the configuration class from a file."""
+    with fsspec.open(path, "r") as f:
+        data = f.read()  # type: ignore
+        if path.endswith(".json"):
+            ret = load_config_class(data, format="json")
+        elif path.endswith(".toml"):
+            ret = load_config_class(data, format="toml")
+        elif path.endswith(".yaml") or path.endswith(".yml"):
+            ret = load_config_class(data, format="yaml")
+        else:
+            raise ValueError(f"Unsupported file format: {path}.")
+
+    if ensure_type is not None and not isinstance(ret, ensure_type):
+        raise TypeError(
+            f"The loaded configuration is not of type {ensure_type.__name__}, "
+            f"but {type(ret).__name__}."
+        )
+
+    return ret
+
+
 class ClassInitFromConfigMixin:
     """Mixin class for the configuration class that initializes from config."""
 
     InitFromConfig: bool = True
+
+
+def add_cfg_type_ser_wrap(v: Any, nxt: SerializerFunctionWrapHandler) -> Any:
+    """Wraps the serialization function to add the `__config_type__` key."""
+    if isinstance(v, Config):
+        ret = nxt(v)
+        if "__config_type__" not in ret:
+            ret["__config_type__"] = callable_to_string(type(v))
+        return ret
+    return nxt(v)
+
+
+ConfigInstanceOf = Annotated[
+    ConfigT,
+    PlainValidator(
+        lambda x: load_config_class(x) if isinstance(x, (str, dict)) else x
+    ),
+    WrapSerializer(add_cfg_type_ser_wrap, when_used="always"),
+]
+"""Type annotation template for any config class instance."""
