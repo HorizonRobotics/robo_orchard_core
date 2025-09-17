@@ -17,9 +17,8 @@
 """The geometry dataclass for 3D transformations and poses."""
 
 from __future__ import annotations
-from typing import Sequence
+from typing import Sequence, Type
 
-import deprecated
 import torch
 from pydantic import AliasChoices, Field
 from typing_extensions import Self
@@ -35,116 +34,14 @@ from robo_orchard_core.utils.math import (
 from robo_orchard_core.utils.math.transform.transform3d import (
     Transform3D_M,
 )
-from robo_orchard_core.utils.torch_utils import Device, make_device
+from robo_orchard_core.utils.torch_utils import Device
 
 __all__ = [
-    "Transform3D",
     "BatchTransform3D",
-    "Pose",
-    "Pose6D",
-    "FrameTransform",
     "BatchPose6D",
     "BatchPose",
     "BatchFrameTransform",
 ]
-
-
-@deprecated.deprecated(
-    reason="Transform3D will be replaced by BatchTransform3D for "
-    "simplicity and efficiency. ",
-    version="0.2.0",
-)
-class Transform3D(DataClass, TensorToMixin):
-    """A 3D transformation of rotation and translation.
-
-    It can be used to represent the transformation of an object in 3D
-    space, or relative pose to another object.
-    """
-
-    xyz: tuple[float, float, float] | TorchTensor = Field(
-        default=(0.0, 0.0, 0.0),
-        validation_alias=AliasChoices("xyz", "trans", "pos"),
-    )
-    """3D ranslation vector or position.
-
-    Defaults to (0.0, 0.0, 0.0)."""
-
-    quat: tuple[float, float, float, float] | TorchTensor = Field(
-        default=(1.0, 0.0, 0.0, 0.0),
-        validation_alias=AliasChoices("quat", "rot", "orientation"),
-    )
-
-    """Quaternion rotation/orientation (w, x, y, z).
-
-    Defaults to (1.0, 0.0, 0.0, 0.0)."""
-
-    @property
-    def trans(self):
-        return self.xyz
-
-    @property
-    def rot(self):
-        return self.quat
-
-    def __post_init__(self):
-        if isinstance(self.trans, torch.Tensor):
-            assert self.trans.dim() == 1 and self.trans.shape[0] == 3, (
-                "Translation must be a 1D tensor with shape (3)."
-            )
-        if isinstance(self.rot, torch.Tensor):
-            assert self.rot.dim() == 1 and self.rot.shape[0] == 4, (
-                "Rotation must be a 1D tensor with shape (4)."
-            )
-
-    def as_BatchTransform3D(self, device: Device = "cpu") -> BatchTransform3D:
-        """Convert the Transform3D to a batch of transformations.
-
-        Args:
-            device (Device): The device to put the tensors on.
-
-        Returns:
-            BatchTransform3D: A BatchTransform3D object with the same
-                translation and rotation as the Transform3D.
-        """
-
-        # The dimensions of xyz and quat will be expanded in
-        # the initialization of BatchTransform3D.
-        return BatchTransform3D(
-            xyz=torch.tensor(self.xyz, device=device),
-            quat=torch.tensor(self.quat, device=device),
-        )
-
-    def repeat(
-        self, batch_size: int, device: Device = "cpu"
-    ) -> BatchTransform3D:
-        """Repeat the transformation to create a batch of transformations.
-
-        Args:
-            batch_size (int): The number of times to repeat the transformation.
-            device (Device, optional): The device to put the tensors on.
-                Defaults to "cpu".
-
-        Returns:
-            BatchFrameTransform: A batch of transformations with the same
-                parent and child frames.
-        """
-        target_device = make_device(device)
-        xyz = self.xyz
-        if not isinstance(xyz, torch.Tensor):
-            xyz = torch.tensor(xyz, device=device)
-        elif xyz.device != target_device:
-            xyz = xyz.to(device)
-
-        quat = self.quat
-        if not isinstance(quat, torch.Tensor):
-            quat = torch.tensor(quat, device=device)
-        elif quat.device != target_device:
-            quat = quat.to(device)
-
-        return BatchTransform3D(
-            xyz=xyz.repeat(batch_size, 1),
-            quat=quat.repeat(batch_size, 1),
-        )
 
 
 class BatchTransform3D(DataClass, TensorToMixin):
@@ -309,6 +206,23 @@ class BatchTransform3D(DataClass, TensorToMixin):
         ret += self.xyz[:, None]  # (N, 1, 3) -> (N, P, 3)
         return ret
 
+    @classmethod
+    def cls_compose(cls: Type, *others):
+        assert len(others) > 1
+        first = others[0]
+        others = others[1:]
+
+        q = torch.clone(first.quat)
+        t = torch.clone(first.xyz)
+        for other in others:
+            t, q = math_utils.frame_transform_combine(
+                t12=t,
+                q12=q,
+                t01=other.xyz,
+                q01=other.quat,
+            )
+        return cls(xyz=t, quat=q, timestamps=first.timestamps)
+
     def compose(self, *others: Self) -> Self:
         """Compose transformations with other transformations.
 
@@ -327,16 +241,9 @@ class BatchTransform3D(DataClass, TensorToMixin):
             Self: A new object with the
                 composed transformations.
         """
-        q = torch.clone(self.quat)
-        t = torch.clone(self.xyz)
-        for other in others:
-            t, q = math_utils.frame_transform_combine(
-                t12=t,
-                q12=q,
-                t01=other.xyz,
-                q01=other.quat,
-            )
-        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
+
+        all_others = (self,) + others
+        return type(self).cls_compose(*all_others)
 
     def subtract(self, other: Self) -> Self:
         """Subtract transformations with another.
@@ -362,7 +269,11 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t02=self.xyz,
             q02=self.quat,
         )
-        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
+        content = self.__dict__.copy()
+        content["xyz"] = t
+        content["quat"] = q
+
+        return type(self)(**content)
 
     def inverse(self) -> Self:
         """Get the inverse of the transformations.
@@ -371,11 +282,11 @@ class BatchTransform3D(DataClass, TensorToMixin):
             Self: A new object with the inverse transformations.
         """
         q_inv = math_utils.quaternion_invert(self.quat)
-        return type(self)(
-            xyz=math_utils.quaternion_apply_point(q_inv, -self.xyz),
-            quat=q_inv,
-            timestamps=self.timestamps,
-        )
+        content = self.__dict__.copy()
+        content["xyz"] = math_utils.quaternion_apply_point(q_inv, -self.xyz)
+        content["quat"] = q_inv
+
+        return type(self)(**content)
 
     def translate(self, translation: TorchTensor) -> Self:
         """Apply translation to the transformations.
@@ -391,7 +302,11 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t01=translation,
             q01=torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.xyz.device),
         )
-        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
+        content = self.__dict__.copy()
+        content["xyz"] = t
+        content["quat"] = q
+
+        return type(self)(**content)
 
     def rotate(self, axis_angle: TorchTensor) -> Self:
         """Rotate the transformations by an axis-angle rotation.
@@ -409,7 +324,11 @@ class BatchTransform3D(DataClass, TensorToMixin):
             t01=torch.tensor([0.0, 0.0, 0.0], device=self.xyz.device),
             q01=q_new,
         )
-        return type(self)(xyz=t, quat=q, timestamps=self.timestamps)
+        content = self.__dict__.copy()
+        content["xyz"] = t
+        content["quat"] = q
+
+        return type(self)(**content)
 
     def repeat(
         self, batch_size: int, timestamps: list[int] | None = None
@@ -435,11 +354,12 @@ class BatchTransform3D(DataClass, TensorToMixin):
                 f"the batch size {batch_size}."
             )
 
-        return type(self)(
-            xyz=xyz.repeat(batch_size, 1),
-            quat=quat.repeat(batch_size, 1),
-            timestamps=timestamps,
-        )
+        content = self.__dict__.copy()
+        content["xyz"] = xyz.repeat(batch_size, 1)
+        content["quat"] = quat.repeat(batch_size, 1)
+        content["timestamps"] = timestamps
+
+        return type(self)(**content)
 
     @classmethod
     def concat(cls, all: Sequence[Self]) -> Self:
@@ -456,81 +376,6 @@ class BatchTransform3D(DataClass, TensorToMixin):
             xyz=torch.cat([other.xyz for other in all], dim=0),
             quat=torch.cat([other.quat for other in all], dim=0),
             timestamps=concat_timestamps([other.timestamps for other in all]),
-        )
-
-
-@deprecated.deprecated(
-    reason="Pose will be replaced by BatchPose for simplicity and efficiency.",
-    version="0.2.0",
-)
-class Pose(Transform3D):
-    """A 6D pose data class.
-
-    Different from Transform3D, Pose6D is composed of a 3D position and a
-    3D orientation. The position and orientation share the same underlying
-    data in Transform3D.
-
-    It is more intuitive to use the position property when dealing with poses,
-    as you can apply a tranlation to a point, but not to a vector.
-
-    In addition, the Pose also has a frame_id attribute, which is used to
-    specify the coordinate frame ID of reference for the pose.
-
-    """
-
-    frame_id: str | None = None
-    """The coordinate frame ID of reference for the pose."""
-
-    @property
-    def pos(self) -> tuple[float, float, float] | torch.Tensor:
-        return self.xyz
-
-    @pos.setter
-    def pos(self, value: tuple[float, float, float]):
-        self.xyz = value
-
-    @property
-    def orientation(self) -> tuple[float, float, float, float] | torch.Tensor:
-        return self.quat
-
-    @orientation.setter
-    def orientation(self, value: tuple[float, float, float, float]):
-        self.quat = value
-
-    def as_BatchPose6D(self, device: Device = "cpu") -> BatchPose6D:
-        """Convert the Pose6D to BatchPose6D.
-
-        Args:
-            device (Device, optional): The device to put the tensors on.
-                Defaults to "cpu".
-
-        Returns:
-            BatchPose6D: A BatchPose6D object with the same
-                position and orientation as the Pose6D.
-        """
-        return BatchPose6D(
-            xyz=torch.tensor(self.xyz, device=device),
-            quat=torch.tensor(self.quat, device=device),
-            frame_id=self.frame_id,
-        )
-
-    def repeat(self, batch_size: int, device: Device = "cpu") -> BatchPose6D:
-        """Repeat the pose to create a batch of poses.
-
-        Args:
-            batch_size (int): The number of times to repeat the pose.
-            device (Device, optional): The device to put the tensors on.
-                Defaults to "cpu".
-
-        Returns:
-            BatchPose6D: A batch of poses with the same position
-                and orientation.
-        """
-        parent_impl = super().repeat(batch_size, device=device)
-        return BatchPose6D(
-            xyz=parent_impl.xyz,
-            quat=parent_impl.quat,
-            frame_id=self.frame_id,
         )
 
 
@@ -644,50 +489,15 @@ class BatchPose(BatchTransform3D):
         )
 
 
-@deprecated.deprecated(
-    reason="FrameTransform will be replaced by BatchFrameTransform for "
-    "simplicity and efficiency. ",
-    version="0.2.0",
-)
-class FrameTransform(Transform3D):
-    """A transformation between two coordinate frames in 3D space.
-
-    A transformation must specify the parent and child frames it connects.
-    """
-
-    parent_frame_id: str
-    """The coordinate frame ID of the parent frame."""
-    child_frame_id: str
-    """The coordinate frame ID of the child frame."""
-
-    def repeat(
-        self, batch_size: int, device: Device = "cpu"
-    ) -> BatchFrameTransform:
-        """Repeat the transformation to create a batch of transformations.
-
-        Args:
-            batch_size (int): The number of times to repeat the transformation.
-            device (Device, optional): The device to put the tensors on.
-                Defaults to "cpu".
-
-        Returns:
-            BatchFrameTransform: A batch of transformations with the same
-                parent and child frames.
-        """
-        parent_impl = super().repeat(batch_size, device=device)
-        return BatchFrameTransform(
-            xyz=parent_impl.xyz,
-            quat=parent_impl.quat,
-            parent_frame_id=self.parent_frame_id,
-            child_frame_id=self.child_frame_id,
-        )
-
-
 class BatchFrameTransform(BatchTransform3D):
     """A batch of transformations between two coordinate frames in 3D space.
 
     A transformation must specify the parent and child frames it connects,
     and all sample should share the same parent and child frames.
+
+    The transform can also be interpreted as transformation matrix of
+    child frame to/w.r.t. parent frame.
+
     """
 
     parent_frame_id: str
@@ -716,22 +526,57 @@ class BatchFrameTransform(BatchTransform3D):
             child_frame_id=self.child_frame_id,
         )
 
-    def compose(self, *others: Self) -> Self:
-        cur_child_frame_id = self.child_frame_id
-        for other in others:
-            if other.parent_frame_id != cur_child_frame_id:
+    @classmethod
+    def cls_compose(cls, *others):
+        """Compose BatchFrameTransform chains.
+
+        The transformations are applied in the order they are passed.
+        The following two lines are equivalent:
+        .. code-block:: python
+
+            t = BatchFrameTransform.cls_compose(t1, t2, t3)
+            t = BatchFrameTransform.cls_compose(t1, t2).compose(t3)
+
+        The chain must be continuous from child to parent frame, which
+        means the child_frame_id of the next transform must match the
+        parent_frame_id of the previous transform.
+        """
+        assert len(others) > 1
+        cur_parent_frame_id = others[0].parent_frame_id
+        for other in others[1:]:
+            if other.child_frame_id != cur_parent_frame_id:
                 raise ValueError(
-                    f"Parent frame ID of {other.parent_frame_id} does not match "  # noqa: E501
-                    f"the previous child frame ID {cur_child_frame_id}."
+                    f"Next child frame ID: {other.child_frame_id} "
+                    "does not match the previous parent frame ID: "
+                    f"{cur_parent_frame_id}. "
+                    "The compose method for BatchFrameTransform requires "
+                    "chain from child to parent frame."
                 )
-            cur_child_frame_id = other.child_frame_id
-        super_ret = super().compose(*others)
-        return type(self)(
-            parent_frame_id=self.parent_frame_id,
-            child_frame_id=cur_child_frame_id,
-            xyz=super_ret.xyz,
-            quat=super_ret.quat,
+            cur_parent_frame_id = other.parent_frame_id
+
+        super_ret = BatchTransform3D.cls_compose(*others)
+        return cls(
+            child_frame_id=others[0].child_frame_id,
+            parent_frame_id=cur_parent_frame_id,
+            **(super_ret.__dict__),
         )
+
+    def compose(self, *others: Self) -> Self:
+        """Compose BatchFrameTransform chains.
+
+        The transformations are applied in the order they are passed.
+        The following two lines are equivalent:
+        .. code-block:: python
+
+            t = t1.compose(t2, t3)
+            t = t1.compose(t2).compose(t3)
+
+        The chain must be continuous from child to parent frame, which
+        means the child_frame_id of the next transform must match the
+        parent_frame_id of the previous transform.
+        """
+        all_others = (self,) + others
+        return type(self).cls_compose(*all_others)
 
     def as_BatchPose(self) -> BatchPose:
         """Convert the BatchFrameTransform to BatchPose.
@@ -752,7 +597,9 @@ class BatchFrameTransform(BatchTransform3D):
         Returns:
             Self: A new object with the inverse transformations.
         """
-        p = super().inverse()
+        p = BatchTransform3D(
+            xyz=self.xyz, quat=self.quat, timestamps=self.timestamps
+        ).inverse()
         return type(self)(
             parent_frame_id=self.child_frame_id,
             child_frame_id=self.parent_frame_id,
@@ -799,5 +646,4 @@ class BatchFrameTransform(BatchTransform3D):
 
 
 # for deprecated naming compatibility
-Pose6D = Pose
 BatchPose6D = BatchPose

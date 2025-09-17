@@ -23,12 +23,10 @@ from typing_extensions import Generic, TypeVar
 
 from robo_orchard_core.datatypes.camera_data import (
     BatchCameraData,
-    CameraData,
     Distortion,
 )
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
-    FrameTransform,
 )
 from robo_orchard_core.utils.config import (
     ClassConfig,
@@ -79,7 +77,7 @@ class CameraBase(
 
     @property
     @abstractmethod
-    def pose_global(self) -> FrameTransform:
+    def pose_global(self) -> BatchFrameTransform:
         """Get the pose of the camera in the global frame.
 
         Global frame usually refers to the world frame, or the frame that is
@@ -119,19 +117,20 @@ class CameraBase(
         return None
 
     @property
-    def tf_parent(self) -> FrameTransform | None:
+    def tf_parent(self) -> BatchFrameTransform | None:
         """Get the parent frame transform of the camera.
 
         User should inherit this method to return the parent frame transform
         if it is applied to the camera.
 
         Returns:
-            FrameTransform | None: The parent frame transform of the camera.
+            BatchFrameTransform | None: The parent frame transform of
+                the camera.
             If no parent frame transform is applied, returns None.
         """
         return None
 
-    def get_camera_data(self, tf_global: bool = True) -> CameraData:
+    def get_camera_data(self, tf_global: bool = True) -> BatchCameraData:
         """Get the camera data of the camera.
 
         Args:
@@ -143,8 +142,8 @@ class CameraBase(
             CameraData: The camera data.
         """
         pose = self.pose_global if tf_global else self.tf_parent
-        return CameraData(
-            intrinsic_matrix=self.intrinsic_matrix,
+        return BatchCameraData(
+            intrinsic_matrices=self.intrinsic_matrix,
             pose=pose,
             sensor_data=self.sensor_data,
             image_shape=self.image_shape,

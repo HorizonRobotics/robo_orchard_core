@@ -48,3 +48,6 @@ pyright[nodejs]
 packaging>=25.0
 twine>=6.1.0
 setuptools>=77.0.3
+
+# ray
+ray[default]

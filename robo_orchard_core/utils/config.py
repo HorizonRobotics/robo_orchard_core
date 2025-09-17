@@ -230,8 +230,8 @@ def string_to_callable(name: str) -> Callable:
 _CallableSerializer = PlainSerializer(
     lambda x: (callable_to_string(x) if x is not None else None),
     return_type=str,
-    when_used="always",
-    # when_used="json",
+    # when_used="always",
+    when_used="json",
 )
 
 ClassType_co = Annotated[

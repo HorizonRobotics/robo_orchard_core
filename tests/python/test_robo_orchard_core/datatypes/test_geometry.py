@@ -18,10 +18,9 @@ import pytest
 import torch
 
 from robo_orchard_core.datatypes.geometry import (
+    BatchFrameTransform as FrameTransform,
+    BatchPose as Pose,
     BatchTransform3D,
-    FrameTransform,
-    Pose,
-    Transform3D,
 )
 from robo_orchard_core.utils.math import math_utils
 
@@ -81,14 +80,14 @@ class TestTransform3D:
         )
         q = math_utils.quaternion_standardize(q)
         t = torch.rand(size=(3,), device=device) - 0.5
-        transform = Transform3D(xyz=t, quat=q)
+        transform = BatchTransform3D(xyz=t, quat=q)
         # Test repeat
 
-        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        target_devices = [torch.device(device)]
         for target_device in target_devices:
             batch_size = 3
             repeated_transform = transform.repeat(
-                batch_size, device=target_device
+                batch_size,
             )
             assert repeated_transform.xyz.shape == (batch_size, 3)
             assert repeated_transform.quat.shape == (batch_size, 4)
@@ -138,11 +137,11 @@ class TestFrameTransform:
         transform = FrameTransform(
             xyz=t, quat=q, parent_frame_id="parent", child_frame_id="child"
         )
-        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        target_devices = [torch.device(device)]
         for target_device in target_devices:
             batch_size = 3
             repeated_transform = transform.repeat(
-                batch_size, device=target_device
+                batch_size,
             )
             assert repeated_transform.xyz.shape == (batch_size, 3)
             assert repeated_transform.quat.shape == (batch_size, 4)
@@ -196,10 +195,10 @@ class TestPose:
         q = math_utils.quaternion_standardize(q)
         t = torch.rand(size=(3,), device=device) - 0.5
         pose = Pose(xyz=t, quat=q, frame_id="pose_frame")
-        target_devices = [torch.device("cpu"), torch.device("cuda:0")]
+        target_devices = [torch.device(device)]
         for target_device in target_devices:
             batch_size = 3
-            repeated_pose = pose.repeat(batch_size, device=target_device)
+            repeated_pose = pose.repeat(batch_size)
             assert repeated_pose.xyz.shape == (batch_size, 3)
             assert repeated_pose.quat.shape == (batch_size, 4)
             assert repeated_pose.xyz.device == target_device

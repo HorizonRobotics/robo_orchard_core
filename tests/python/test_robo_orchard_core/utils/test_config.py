@@ -153,7 +153,8 @@ class TestSimpleClassConfig:
         config = DummyClassConfig()
         config.int_value = 200
         assert config.to_dict() == {
-            "class_type": "test_config:DummyConfig",
+            # "class_type": "test_config:DummyConfig",
+            "class_type": DummyConfig,
             "int_value": 200,
         }
 
@@ -229,13 +230,16 @@ class TestCascadeClassConfig:
             cfg2=DummyClassConfig(int_value=300),
         )
         assert config.to_dict() == {
-            "class_type": "test_config:DummyConfig2",
+            # "class_type": "test_config:DummyConfig2",
+            "class_type": DummyConfig2,
             "cfg1": {
-                "class_type": "test_config:DummyConfig",
+                # "class_type": "test_config:DummyConfig",
+                "class_type": DummyConfig,
                 "int_value": 200,
             },
             "cfg2": {
-                "class_type": "test_config:DummyConfig",
+                # "class_type": "test_config:DummyConfig",
+                "class_type": DummyConfig,
                 "int_value": 300,
             },
         }
@@ -258,11 +262,13 @@ class TestCascadeClassConfig:
         assert isinstance(instance, DummyConfig2)
         assert instance.to_dict() == {
             "cfg1": {
-                "class_type": "test_config:DummyConfig",
+                # "class_type": "test_config:DummyConfig",
+                "class_type": DummyConfig,
                 "int_value": 200,
             },
             "cfg2": {
-                "class_type": "test_config:DummyConfig",
+                # "class_type": "test_config:DummyConfig",
+                "class_type": DummyConfig,
                 "int_value": 300,
             },
         }

@@ -22,14 +22,137 @@ kinematics. It consists of links and joints.
 """
 
 from __future__ import annotations
+import functools
 import os
+import warnings
 from typing import Literal
 
 import pytorch_kinematics as pk
 import torch
-from pytorch_kinematics.frame import Frame
+from pytorch_kinematics.frame import Frame as _Frame
 
+from robo_orchard_core.datatypes.geometry import BatchFrameTransform
+from robo_orchard_core.datatypes.joint_state import BatchJointsState
 from robo_orchard_core.utils.math.transform.transform3d import Transform3D_M
+
+
+def _get_timestamps(
+    timestamps: list[int] | None, joints: BatchJointsState | torch.Tensor
+) -> list[int] | None:
+    if isinstance(joints, BatchFrameTransform):
+        if isinstance(timestamps, list) and joints.timestamps is not None:
+            warnings.warn(
+                "Passing timestamps when joints is a "
+                "BatchFrameTransform will be ignored.",
+            )
+            timestamps = joints.timestamps
+    return timestamps
+
+
+class Frame(_Frame):
+    """A frame in a kinematic chain.
+
+    A Frame is defined as follows:
+
+    .. code-block:: text
+
+                        ||--------Frame0--------||
+                                                ||----------Frame0 Children-----||
+                                                ||----------Frame1--------------||
+        [Parent_link0]                          joint1 ->  [link1]
+                    \\                        /
+                        joint0  -->  [link0]
+                                             \
+                                                joint2 ->  [link2]
+                                                ||----------Frame2--------------||
+
+    The frame name is usually the same as the link name. For root frame (the frame
+    that has no parent), it is attached to a virtual fixed joint with empty name
+    and offset.
+    """  # noqa: E501
+
+    @property
+    def joint_type(self) -> Literal["fixed", "revolute", "prismatic"]:
+        return self.joint.joint_type  # type: ignore
+
+    @classmethod
+    def from_frame(cls, frame: _Frame) -> Frame:
+        """Create a Frame from a pytorch_kinematics Frame."""
+        ret = cls.__new__(cls)
+        ret.__dict__.update(frame.__dict__)
+        return ret
+
+    def get_transform(
+        self, joint_positions: torch.Tensor | BatchJointsState
+    ) -> Transform3D_M:
+        """Get the transform of this frame w.r.t. the parent frame.
+
+        Args:
+            joint_positions (torch.Tensor|BatchJointsState): The joint
+                positions tensor. The tensor should be of shape (N,)
+                where N is the batch size. If a BatchJointsState is
+                provided, the joint positions for this frame will be
+                extracted based on the joint name if available, otherwise
+                the first joint position will be used.
+
+        """
+        if isinstance(joint_positions, BatchJointsState):
+            if joint_positions.position is None:
+                raise ValueError("joint_positions.position is None")
+            # find joint indices
+            if joint_positions.names is None:
+                theta = joint_positions.position[:, 0]
+            else:
+                joint_idx = None
+                for i, j_name in enumerate(joint_positions.names):
+                    if j_name == self.joint.name:
+                        joint_idx = i
+                        break
+                if joint_idx is None:
+                    raise ValueError(
+                        f"joint {self.joint.name} not found in "
+                        "joint_positions.names"
+                    )
+                theta = joint_positions.position[:, joint_idx]
+        else:
+            theta = joint_positions
+
+        mat = super().get_transform(theta)
+        return Transform3D_M(
+            dtype=mat.dtype, device=mat.device, matrix=mat.get_matrix()
+        )
+
+    def get_frame_transform(
+        self,
+        joint_positions: torch.Tensor | BatchJointsState,
+        parent_link_name: str,
+        timestamps: list[int] | None = None,
+    ) -> BatchFrameTransform:
+        """Get the transform of this frame w.r.t. the parent link frame.
+
+        Args:
+            joint_positions (torch.Tensor|BatchJointsState): The joint
+                positions tensor. The tensor should be of shape (N,)
+                where N is the batch size. If a BatchJointsState is
+                provided, the joint positions for this frame will be
+                extracted based on the joint name if available, otherwise
+                the first joint position will be used.
+            parent_link_name (str): The name of the parent link frame.
+
+        Returns:
+            BatchFrameTransform: The transform of this frame w.r.t. the
+                parent link frame.
+        """
+        timestamps = _get_timestamps(timestamps, joint_positions)
+
+        mat = self.get_transform(joint_positions)
+        return BatchFrameTransform(
+            xyz=mat.get_translation(),
+            quat=mat.get_rotation_quaternion(normalize=True),
+            timestamps=timestamps,
+            parent_frame_id=parent_link_name,
+            child_frame_id=self.name,
+        )
 
 
 class KinematicChain:
@@ -150,19 +273,57 @@ class KinematicChain:
             [Parent_link0]                          joint1 ->  [link1]
                         \                        /
                             joint0  -->  [link0]
-                                                \
+                                                 \
                                                     joint2 ->  [link2]
                                                     ||----------Frame2--------------||
 
+        The frame name is usually the same as the link name. For root frame (the frame
+        that has no parent), it is attached to a virtual fixed joint with empty name
+        and offset.
         """  # noqa: E501
+        ret = self._chain.find_frame(name)
+        if ret is not None:
+            return Frame.from_frame(ret)
+        else:
+            return None
 
-        return self._chain.find_frame(name)
+    def forward_kinematics_tf(
+        self,
+        joint_positions: torch.Tensor | BatchJointsState,
+        frame_names: list[str] | None = None,
+        timestamps: list[int] | None = None,
+    ) -> dict[str, BatchFrameTransform]:
+        """Compute forward kinematics and return as BatchFrameTransform."""
+
+        if isinstance(joint_positions, BatchJointsState):
+            if joint_positions.position is None:
+                raise ValueError("joint_positions.position is None")
+            joint_positions = joint_positions.position
+
+        timestamps = _get_timestamps(timestamps, joint_positions)
+
+        ret = self.forward_kinematics(joint_positions, frame_names=frame_names)
+        root_frame_name = self._chain._root.name
+        return {
+            k: BatchFrameTransform(
+                xyz=v.get_translation(),
+                quat=v.get_rotation_quaternion(normalize=True),
+                parent_frame_id=root_frame_name,
+                child_frame_id=k,
+                timestamps=timestamps,
+            )
+            for k, v in ret.items()
+        }
 
     def forward_kinematics(
         self,
         joint_positions: torch.Tensor,
+        frame_names: list[str] | None = None,
     ) -> dict[str, Transform3D_M]:
         """Compute forward kinematics for the chain.
+
+        The forward kinematics is computed as the pose of each frame in
+        the chain w.r.t. the root frame.
 
         Args:
             joint_positions (torch.Tensor): The joint positions tensor.
@@ -170,23 +331,25 @@ class KinematicChain:
                 size and DOF is the number of degrees of freedom in the chain.
                 The joint_positions tensor should follow the same order as the
                 chain's joint order of `self.joint_parameter_names`.
+            frame_names: A list of frame name to compute transforms for.
+                If None, all frames are computed.
 
         Returns:
             dict[str, Transform3D_M]: A dictionary containing the forward
                 kinematics of the chain. The keys of the dictionary are the
                 names of the frames in the chain and the values are the
-                corresponding transformation matrices.
+                corresponding pose matrices.
         """
 
-        # joint_positions should be a tensor of shape (N, DOF)
-        # where DOF is the number of degrees of freedom in the chain
-        # and N is the batch size.
-
-        # The joint_positions tensor should follow the same order as the
-        # chain's joint order of self.joint_parameter_names
+        frame_indices = None
+        if frame_names is not None and frame_names != []:
+            frame_indices = torch.tensor(
+                [self._chain.frame_to_idx[n] for n in frame_names],
+                dtype=torch.long,
+            )
 
         fk_dict = self._chain.forward_kinematics(
-            joint_positions, frame_indices=None
+            joint_positions, frame_indices=frame_indices
         )
         fk_dict = {
             k: Transform3D_M(
@@ -195,6 +358,23 @@ class KinematicChain:
             for k, v in fk_dict.items()
         }
         return fk_dict
+
+    @functools.cached_property
+    def parent_map(self) -> dict[str, str]:
+        """A map from frame name to its parent frame name."""
+        parent_map = {}
+        for p_name in self._chain.get_frame_names(exclude_fixed=False):
+            p_frame = self._chain.find_frame(p_name)
+            assert p_frame is not None
+            for c in p_frame.children:
+                if c.name not in parent_map:
+                    parent_map[c.name] = p_name
+                else:
+                    raise ValueError(
+                        f"frame {c.name} has multiple parents: "
+                        f"{parent_map[c.name]} and {p_name}"
+                    )
+        return parent_map
 
 
 class KinematicSerialChain(KinematicChain):
@@ -243,6 +423,7 @@ class KinematicSerialChain(KinematicChain):
     def forward_kinematics(
         self, joint_positions: torch.Tensor
     ) -> dict[str, Transform3D_M]:
+        # TODO: Refactor to keep the same API as the base class
         fk_dict = self._chain.forward_kinematics(
             joint_positions, end_only=False
         )

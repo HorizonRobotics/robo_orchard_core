@@ -52,11 +52,6 @@ class RandomPolicy(PolicyMixin[Any, ACTType]):
         """Reset the policy. No specific action is needed for random policy."""
         pass
 
-    @property
-    def is_deterministic(self) -> bool:
-        """Check if the policy is deterministic."""
-        return True
-
 
 class RandomPolicyConfig(PolicyConfig[RandomPolicy]):
     class_type: Type[RandomPolicy] = RandomPolicy

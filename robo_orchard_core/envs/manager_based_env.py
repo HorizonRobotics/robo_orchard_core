@@ -60,9 +60,6 @@ TermManagerBasedEnvCfgType_co = TypeVar(
 )
 
 
-# StepReturnType: TypeAlias = EnvStepReturn[ObsReturnType, RewardsType]
-
-
 class ResetEvent(EventMsg):
     """The reset event message.
 
@@ -98,7 +95,7 @@ class StepEvent(EventMsg):
 
 
 class TermManagerBasedEnv(
-    EnvBase[EnvStepReturn[ObsReturnType, RewardsType]],
+    EnvBase[ObsReturnType, RewardsType],
     Generic[TermManagerBasedEnvCfgType_co, RewardsType],
 ):
     """The environment class which use term managers to interact.
@@ -221,7 +218,7 @@ class TermManagerBasedEnv(
         seed: int | None = None,
         env_ids: Sequence[int] | None = None,
         **kwargs,
-    ) -> EnvStepReturn[ObsReturnType, RewardsType]:
+    ) -> tuple[ObsReturnType, dict]:
         """Reset the environment.
 
         This function will call the reset function of the environment and

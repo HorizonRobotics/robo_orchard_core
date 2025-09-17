@@ -20,7 +20,6 @@ from __future__ import annotations
 import copy
 from typing import Callable, Literal, Sequence
 
-import deprecated
 import torch
 from typing_extensions import Self
 
@@ -28,7 +27,6 @@ from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
 from robo_orchard_core.datatypes.enum import StrEnum
 from robo_orchard_core.datatypes.geometry import (
     BatchFrameTransform,
-    FrameTransform,
 )
 from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
@@ -45,7 +43,6 @@ __all___ = [
     "ImageChannelLayout",
     "ImageMode",
     "Distortion",
-    "CameraData",
     "BatchCameraInfo",
     "BatchImageData",
     "BatchCameraData",
@@ -133,120 +130,6 @@ class Distortion(DataClass, TensorToMixin):
             coefficients=self.coefficients.clone()
             if self.coefficients is not None
             else None,
-        )
-
-
-@deprecated.deprecated(
-    version="0.2.0",
-    reason="CameraData will be replaced by BatchCameraData for "
-    "simplicity and efficiency. ",
-)
-class CameraData(DataClass, TensorToMixin):
-    """Data class for camera sensor data."""
-
-    topic: str | None = None
-    """The topic of the camera sensor."""
-
-    frame_id: str | None = None
-    """Coordinate frame ID for the camera sensor.
-
-    This is NOT the frame number or index of the image frame!
-
-    frame_id is typically used to identify the coordinate frame in which the
-    camera data is expressed. It can be useful for visualization or
-    transformation purposes.
-    If not provided, it defaults to None.
-    """
-
-    pose: FrameTransform | None = None
-    """The pose of the camera sensor.
-
-    This is also known as the extrinsic matrix of the camera.
-    """
-
-    image_shape: tuple[int, int] | None = None
-    """A tuple containing (height, width) of the camera sensor."""
-
-    intrinsic_matrix: TorchTensor | None
-    """The intrinsic matrix for the camera.
-
-    Shape is (3, 3).
-    """
-
-    sensor_data: TorchTensor
-    """The sensor data from the camera.
-
-    Shape is (H, W, C) for raw data, where C is the number of channels,
-    H is the height of the image, and W is the width of the image.
-
-    For compressed data, the shape is (N, ) where N is the number of bytes.
-    """
-
-    distortion: Distortion | None = None
-
-    pix_fmt: Literal["rgb", "bgr", "gray", "depth"] | None = None
-    """Pixel format."""
-
-    @property
-    def distortion_coefficients(self) -> TorchTensor | None:
-        """Get the distortion coefficients of the camera.
-
-        Returns:
-            TorchTensor | None: The distortion coefficients of the camera.
-            If no distortion model is applied, returns None.
-        """
-        if self.distortion is not None:
-            return self.distortion.coefficients
-        return None
-
-    @property
-    def distortion_model(
-        self,
-    ) -> Literal["plumb_bob", "rational_polynomial", "equidistant"] | None:
-        """Get the distortion model of the camera.
-
-        Returns:
-            Literal["plumb_bob", "rational_polynomial", "equidistant"] | None:
-            The distortion model of the camera. If no distortion model is
-            applied, returns None.
-        """
-        if self.distortion is not None:
-            return self.distortion.model
-        return None
-
-    def __post_init__(self):
-        if self.image_shape is None:
-            if self.sensor_data.dim() == 3:
-                data_shape = self.sensor_data.shape
-                self.image_shape = (data_shape[0], data_shape[1])
-            else:
-                raise ValueError(
-                    "image_shape must be provided if sensor_data is not 3D."
-                )
-
-    def get_extrinsic_matrix(self, device: Device = "cpu") -> TorchTensor:
-        """Get the extrinsic matrix of the camera.
-
-        Pose6D describes the transformation from the camera frame to the
-        world frame, while the extrinsic matrix describes the transformation
-        from the world frame to the camera frame, which is the inverse of
-        the pose transformation (cam w.r.t world).
-
-        The extrinsic matrix is a 4x4 matrix:
-
-        .. code-block:: text
-
-            [[R, t],
-             [0, 1]]
-
-        Where R is a 3x3 rotation matrix and t is a 3x1 translation vector.
-        """
-        assert self.pose is not None
-        return (
-            self.pose.as_BatchTransform3D(device=device)
-            .inverse()
-            .as_Transform3D_M()
-            .get_matrix()[0]
         )
 
 

@@ -14,7 +14,9 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-from typing import Generic, TypeVar
+from typing import Any, Generic, Sequence, TypeVar
+
+from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import DataClass
 from robo_orchard_core.datatypes.geometry import BatchFrameTransform
@@ -23,7 +25,7 @@ EDGE_TYPE = TypeVar("EDGE_TYPE")
 NODE_TYPE = TypeVar("NODE_TYPE")
 
 
-class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
+class EdgeGraph(DataClass, Generic[EDGE_TYPE, NODE_TYPE]):
     """A generic edge graph data structure."""
 
     edges: dict[str, dict[str, EDGE_TYPE]]
@@ -32,8 +34,7 @@ class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
     """The nodes are represented as string dict."""
 
     def __init__(self):
-        self.edges = {}
-        self.nodes = {}
+        super().__init__(edges={}, nodes={})
         self._in_degree = {node_id: 0 for node_id in self.nodes}
 
     def _add_node(self, node_id: str, node: NODE_TYPE):
@@ -126,6 +127,20 @@ class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE], DataClass):
         return path
 
 
+class BatchFrameTransformGraphState(DataClass):
+    tf_list: list[BatchFrameTransform]
+    bidirectional: bool = True
+    static_tf: list[bool] | None = None
+
+    def __post_init__(self):
+        if self.static_tf is not None and len(self.static_tf) != len(
+            self.tf_list
+        ):
+            raise ValueError(
+                "static_tf and tf_list must have the same length."
+            )
+
+
 class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
     """A graph structure for batch frame transforms.
 
@@ -158,11 +173,12 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         static_tf: list[bool] | None = None,
     ):
         super().__init__()
+        self._bidirectional = bidirectional
         self._mirrored_edges: dict[str, dict[str, BatchFrameTransform]] = {}
         self._static_edges: dict[str, dict[str, bool]] = {}
 
         if tf_list is not None:
-            self.add_tf(
+            self._add_tf(
                 tf_list, bidirectional=bidirectional, static_tf=static_tf
             )
 
@@ -273,13 +289,15 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             )
             self.edges[mirrored_from_node][mirrored_to_node] = mirrored_tf
 
-    def add_tf(
+    def _add_tf(
         self,
-        tf_list: list[BatchFrameTransform],
+        tf_list: Sequence[BatchFrameTransform],
         bidirectional: bool = True,
-        static_tf: list[bool] | None = None,
+        static_tf: Sequence[bool] | None = None,
     ):
         """Add a list of BatchFrameTransform to the graph.
+
+        This method should only be called during initialization.
 
         Args:
             tf_list (list[BatchFrameTransform]): A list of BatchFrameTransform
@@ -317,6 +335,33 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
                 is_static=is_static,
             )
 
+    def add_tf(
+        self,
+        tf: Sequence[BatchFrameTransform] | BatchFrameTransform,
+        static_tf: Sequence[bool] | bool | None = None,
+    ):
+        """Add a list of BatchFrameTransform to the graph.
+
+        Args:
+            tf (Sequence[BatchFrameTransform]|BatchFrameTransform): The
+                BatchFrameTransform objects to add to the graph.
+            static_tf (Sequence[bool] | bool, None, optional): A list of
+                booleans indicating whether each BatchFrameTransform is static.
+                If None, all transforms are considered non-static. Defaults
+                to None.
+        """
+
+        if isinstance(tf, BatchFrameTransform):
+            tf = [tf]
+        if isinstance(static_tf, bool):
+            static_tf = [static_tf]
+
+        return self._add_tf(
+            tf_list=tf,
+            static_tf=static_tf,
+            bidirectional=self._bidirectional,
+        )
+
     def get_tf(
         self, parent_frame_id: str, child_frame_id: str, compose: bool = True
     ) -> BatchFrameTransform | list[BatchFrameTransform] | None:
@@ -331,7 +376,7 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             transformation between the two frames. If compose is True, it
             returns a single BatchFrameTransform object. If compose is False,
             it returns a list of BatchFrameTransform objects representing the
-            path from the parent frame to the child frame. If no path exists,
+            path from child tf to parent tf. If no path exists,
             it returns None.
         """
         if (
@@ -347,6 +392,11 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             return None
         assert len(path) > 0, "Path should not be empty."
 
+        if len(path) > 1:
+            # The original path is the chain from parent tf to child tf.
+            # we need to reverse it to get the correct order.
+            path.reverse()
+
         if compose:
             if len(path) == 1:
                 return path[0]
@@ -355,23 +405,34 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         else:
             return path
 
-    def export_edges(
-        self,
-        include_mirrored: bool = False,
-    ) -> list[BatchFrameTransform]:
-        """Export the edges of the graph.
-
-        Args:
-            include_mirrored (bool): Whether to include mirrored edges in the
-                exported edges. Defaults to False.
-        """
-        edges = []
+    def as_state(self) -> BatchFrameTransformGraphState:
+        edges: list[BatchFrameTransform] = []
+        is_static: list[bool] = []
         for from_node, to_edges in self.edges.items():
             for to_node, edge in to_edges.items():
-                if not include_mirrored and self.is_mirrored_tf(
-                    from_node, to_node
-                ):
-                    # Skip mirrored edges if not included
+                if self.is_mirrored_tf(from_node, to_node):
                     continue
                 edges.append(edge)
-        return edges
+                is_static.append(self.is_static_tf(from_node, to_node))
+        return BatchFrameTransformGraphState(
+            tf_list=edges,
+            bidirectional=self._bidirectional,
+            static_tf=is_static,
+        )
+
+    @classmethod
+    def from_state(
+        cls,
+        state: BatchFrameTransformGraphState,
+    ) -> Self:
+        return cls(**state.__dict__)
+
+    def __getstate__(self) -> dict[Any, Any]:
+        return self.as_state().__dict__
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        new = BatchFrameTransformGraph.from_state(
+            BatchFrameTransformGraphState(**state)
+        )
+        for k, v in new.__dict__.items():
+            self.__dict__[k] = v

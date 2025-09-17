@@ -16,18 +16,25 @@
 
 from __future__ import annotations
 from abc import ABCMeta, abstractmethod
-from typing import Callable, Generic, Type
+from typing import TYPE_CHECKING, Any, Generic
 
 import gymnasium as gym
-from typing_extensions import TypeVar
+from typing_extensions import Self, TypeVar
 
-from robo_orchard_core.utils.config import ClassConfig
+from robo_orchard_core.utils.config import ClassConfig, ClassType
+
+if TYPE_CHECKING:
+    from robo_orchard_core.policy.remote import (
+        RayRemoteClassConfig,
+        RemotePolicyConfig,
+    )
+
 
 OBSType = TypeVar("OBSType")
 ACTType = TypeVar("ACTType")
 
 
-__all__ = ["PolicyMixin", "PolicyConfig"]
+__all__ = ["PolicyMixin", "PolicyConfig", "ClassType", "PolicyConfigType_co"]
 
 
 class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
@@ -56,7 +63,10 @@ class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
     """
 
     action_space: gym.Space[ACTType] | None
-    """The action space of the policy."""
+    """The action space of the policy.
+
+    Can be None if not applicable.
+    """
 
     def __init__(
         self,
@@ -69,19 +79,8 @@ class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
         self.action_space = action_space
         self.cfg = cfg
 
-    @property
     @abstractmethod
-    def is_deterministic(self) -> bool:
-        """Return whether the policy is deterministic.
-
-        A deterministic policy always returns the same action for a given
-        observation, while a stochastic policy may return different actions
-        based on some internal randomness.
-        """
-        raise NotImplementedError("Subclasses must implement this property.")
-
-    @abstractmethod
-    def reset(self) -> None:
+    def reset(self, *args, **kwargs) -> None:
         """Reset the policy to its initial state.
 
         This method is called at the beginning of an episode or when the
@@ -91,7 +90,7 @@ class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    def act(self, obs: OBSType) -> ACTType | Callable[[], ACTType]:
+    def act(self, obs: OBSType) -> ACTType:
         """Return an action based on the given observation.
 
         Args:
@@ -99,12 +98,10 @@ class PolicyMixin(Generic[OBSType, ACTType], metaclass=ABCMeta):
 
         Returns:
             An action or a callable that returns an action.
-            If the policy is stochastic, it may return a callable that
-            samples an action from a distribution.
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def __call__(self, obs: OBSType) -> ACTType | Callable[[], ACTType]:
+    def __call__(self, obs: OBSType) -> ACTType:
         """A convenience method to call the policy."""
         return self.act(obs)
 
@@ -127,14 +124,14 @@ class PolicyConfig(ClassConfig[PolicyType]):
 
     """
 
-    class_type: Type[PolicyType]
+    class_type: ClassType[PolicyType]
     """The type of the policy class to be created."""
 
     def __call__(
         self,
         observation_space: gym.Space | None = None,
         action_space: gym.Space | None = None,
-    ) -> PolicyType:
+    ):
         """Create an instance of the policy with the given spaces.
 
         Args:
@@ -149,3 +146,53 @@ class PolicyConfig(ClassConfig[PolicyType]):
             observation_space=observation_space,
             action_space=action_space,
         )
+
+    def as_remote(
+        self,
+        remote_class_config: RayRemoteClassConfig | None = None,
+        ray_init_config: dict[str, Any] | None = None,
+        check_init_timeout: int = 60,
+    ) -> RemotePolicyConfig[Self]:
+        """Convert this PolicyConfig to a RemotePolicyConfig.
+
+        This method wraps the current policy configuration into a
+        RemotePolicyConfig, which can be used to create a remote policy
+        instance that runs in a separate process or machine using Ray.
+
+        Args:
+            remote_class_config (RayRemoteClassConfig | None, optional):
+                Configuration for the remote class. If None, defaults to
+                RayRemoteClassConfig(). Defaults to None.
+            ray_init_config (dict[str, Any] | None, optional): Configuration
+                for initializing Ray. If None, use default. Defaults to None.
+            check_init_timeout (int, optional): Timeout in seconds for checking
+                if the remote actor is initialized. Defaults to 60.
+
+        Returns:
+            RemotePolicyConfig: The converted remote policy configuration.
+
+        """
+        from robo_orchard_core.policy.remote import (
+            RemotePolicyConfig,
+            as_remote_policy,
+        )
+
+        if isinstance(self, RemotePolicyConfig):
+            return as_remote_policy(
+                self.instance_config,
+                remote_class_config=remote_class_config,
+                ray_init_config=ray_init_config,
+                check_init_timeout=check_init_timeout,
+            )
+        else:
+            return as_remote_policy(
+                self,
+                remote_class_config=remote_class_config,
+                ray_init_config=ray_init_config,
+                check_init_timeout=check_init_timeout,
+            )
+
+
+PolicyConfigType_co = TypeVar(
+    "PolicyConfigType_co", bound=PolicyConfig, covariant=True
+)

@@ -320,6 +320,9 @@ class Transform3D_M:
     def compose(self, *others: Transform3D_M) -> Transform3D_M:
         """Return a new Transform3D_M representing the composition of self with the given other transforms, which will be stored as an internal list.
 
+        The new transform will apply current transform first, and then the others
+        in the order they are given.
+
         Args:
             *others: Any number of Transform3D_M objects
 

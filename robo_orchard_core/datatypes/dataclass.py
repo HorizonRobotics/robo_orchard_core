@@ -145,7 +145,8 @@ class DataClass(BaseModel):
         def obj_eq(src, dst):
             """Custom equality method for objects with tensor support."""
             if isinstance(src, torch.Tensor) and isinstance(dst, torch.Tensor):
-                return tensor_equal(src, dst)
+                ret = tensor_equal(src, dst)
+                return ret
             elif isinstance(src, (list, tuple)) and isinstance(
                 dst, (list, tuple)
             ):
@@ -239,7 +240,10 @@ class TensorToMixin:
 
 
 def tensor_equal(
-    src: torch.Tensor | None, dst: torch.Tensor | None, atol: float = 1e-8
+    src: torch.Tensor | None,
+    dst: torch.Tensor | None,
+    rtol: float = 0.00001,
+    atol: float = 1e-8,
 ) -> bool:
     """Check if two tensors are equal within a tolerance.
 
@@ -257,7 +261,7 @@ def tensor_equal(
     if src is None and dst is None:
         return True
     assert src is not None and dst is not None
-    return torch.allclose(src, dst, atol)
+    return torch.allclose(src, dst, rtol=rtol, atol=atol)
 
 
 def np2torch(src: np.ndarray | list | dict | torch.Tensor) -> Any:

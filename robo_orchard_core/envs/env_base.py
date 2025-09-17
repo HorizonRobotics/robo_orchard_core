@@ -19,21 +19,28 @@
 from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import gymnasium as gym
 import torch
 from typing_extensions import (
     Generic,
+    Self,
     Sequence,
     TypeVar,
 )
 
-from robo_orchard_core.policy import PolicyMixin, RandomPolicy
 from robo_orchard_core.utils.config import (
     ClassConfig,
     ClassInitFromConfigMixin,
 )
+
+if TYPE_CHECKING:
+    from robo_orchard_core.envs.remote import RemoteEnvCfg
+    from robo_orchard_core.envs.rollout import EnvRolloutReturn
+    from robo_orchard_core.policy import PolicyMixin
+    from robo_orchard_core.utils.ray import RayRemoteClassConfig
+
 
 ObsType = TypeVar("ObsType")
 RewardsType = TypeVar("RewardsType")
@@ -57,7 +64,7 @@ class EnvStepReturn(Generic[ObsType, RewardsType]):
     """The observations returned by the environment after taking a step."""
     rewards: RewardsType | None
     """The rewards returned by the environment after taking a step."""
-    terminated: torch.Tensor | None
+    terminated: bool | torch.Tensor | None
     """Whether the environment has reached a terminal state.
 
     Usually the environment is considered to be in a terminal state
@@ -66,7 +73,7 @@ class EnvStepReturn(Generic[ObsType, RewardsType]):
     User should call `reset` function to reset the environment
     after the environment has reached a terminal state.
     """
-    truncated: torch.Tensor | None
+    truncated: bool | torch.Tensor | None
     """Whether the truncation condition has been met, for example, a time
     limit, or the agent has gone out of bounds.
 
@@ -83,33 +90,11 @@ class EnvStepReturn(Generic[ObsType, RewardsType]):
 EnvStepReturnType = TypeVar(
     "EnvStepReturnType", bound=EnvStepReturn, covariant=True
 )
-#:
-EnvType = TypeVar("EnvType", bound="EnvBase")
-#:
-EnvType_co = TypeVar("EnvType_co", bound="EnvBase", covariant=True)
-
-
-class EnvBaseCfg(ClassConfig[EnvType_co], Generic[EnvType_co]):
-    """The configuration for the environment.
-
-    Template Args:
-        EnvType_co: The type of the environment class.
-
-    """
-
-    def __call__(self) -> EnvType_co:
-        """Create an instance of the environment."""
-        return self.create_instance_by_cfg()
-
-
-EnvBaseCfgType_co = TypeVar(
-    "EnvBaseCfgType_co", bound=EnvBaseCfg, covariant=True
-)
 
 
 class EnvBase(
     ClassInitFromConfigMixin,
-    Generic[EnvStepReturnType],
+    Generic[ObsType, RewardsType],
     metaclass=ABCMeta,
 ):
     """Base class for all environments.
@@ -134,7 +119,7 @@ class EnvBase(
     """
 
     @abstractmethod
-    def step(self, *args, **kwargs) -> EnvStepReturnType:
+    def step(self, *args, **kwargs) -> EnvStepReturn[ObsType, RewardsType]:
         """Interface of takeing a step in the environment.
 
         Usually, this function takes in an action and returns the
@@ -151,7 +136,7 @@ class EnvBase(
         seed: int | None = None,
         env_ids: Sequence[int] | None = None,
         **kwargs,
-    ) -> EnvStepReturnType:
+    ) -> tuple[ObsType, dict[str, Any]]:
         """Reset the environment."""
 
         raise NotImplementedError
@@ -223,12 +208,23 @@ class EnvBase(
         """
         return self
 
+    def __enter__(self):
+        """Support with-statement for the environment."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Support with-statement for the environment."""
+        self.close()
+
     def rollout(
         self,
         max_steps: int,
         init_obs: Any,
         policy: PolicyMixin | None = None,
-    ) -> list[EnvStepReturnType]:
+        env_step_callback: Callable[[Any, Any], None] | None = None,
+        terminal_condition: Callable[[Any], bool] | None = None,
+        keep_last_results: int = -1,
+    ) -> EnvRolloutReturn[Any, EnvStepReturn[ObsType, RewardsType]]:
         """Roll out the environment for a number of steps.
 
         This function is used to run the environment for a number of steps
@@ -238,31 +234,89 @@ class EnvBase(
         Args:
             max_steps (int): The maximum number of steps to roll out the
                 environment.
+            init_obs (Any): The initial observations to start the rollout
+                from.
             policy (PolicyMixin | None, optional): The policy to use for
                 taking actions in the environment. If None, random actions
                 will be taken. Defaults to None.
+            env_step_callback (Callable[[Any, Any], None] | None, optional):
+                A callback function that takes in the current action and the
+                result of the step. This can be used to log information or
+                perform other operations after each step. Defaults to None.
+            terminal_condition (Callable[[Any], bool] | None, optional):
+                A function that takes in the result of a step and returns
+                whether to terminate the rollout. If None, the rollout will
+                continue until max_steps is reached. Defaults to None.
+            keep_last_results (int, optional): If > 0, only keep the last
+                `keep_last_results` results. This is useful for long rollouts
+                where only the last few results are needed. Defaults to -1,
 
         Returns:
-            list[EnvStepReturnType]: A list of results from each step of the
-                environment. Each result is an instance of `EnvStepReturnType`
-                containing observations, rewards, and other information.
+            EnvRolloutReturn: An instance of `EnvRolloutReturn` containing
+                the actions taken and the results from each step of the
+                environment.
         """
-        if policy is None:
-            policy = RandomPolicy(
-                observation_space=self.observation_space,
-                action_space=self.action_space,
-            )
+        from robo_orchard_core.envs.rollout import rollout
 
-        results = []
-        for i in range(max_steps):
-            if i == 0:
-                obs = init_obs
-            action = policy(obs)
-            # if stochastic policy, the action should be sampled
-            # from the distribution.
-            if not policy.is_deterministic:
-                action = action()
-            step_ret = self.step(action)
-            results.append(step_ret)
-            obs = step_ret.observations
-        return results
+        return rollout(
+            self,
+            max_steps=max_steps,
+            init_obs=init_obs,
+            policy=policy,
+            env_step_callback=env_step_callback,
+            terminal_condition=terminal_condition,
+            keep_last_results=keep_last_results,
+        )
+
+
+#:
+EnvType = TypeVar("EnvType", bound=EnvBase)
+#:
+EnvType_co = TypeVar("EnvType_co", bound=EnvBase, covariant=True)
+
+
+class EnvBaseCfg(ClassConfig[EnvType_co]):
+    """The configuration for the environment.
+
+    Template Args:
+        EnvType_co: The type of the environment class.
+
+    """
+
+    def __call__(self) -> EnvType_co:
+        """Create an instance of the environment."""
+        return self.create_instance_by_cfg()
+
+    def as_remote(
+        self,
+        remote_class_config: RayRemoteClassConfig | None = None,
+        ray_init_config: dict[str, Any] | None = None,
+        check_init_timeout: int = 60,
+    ) -> RemoteEnvCfg[Self]:
+        """Convert this EnvBaseCfg to a RemoteEnvCfg.
+
+        Args:
+            remote_class_config (RayRemoteClassConfig | None): The Ray
+                remote class configuration. If None, a default configuration
+                will be used. Default is None.
+            ray_init_config (dict[str, Any] | None): The configuration for
+                initializing Ray. If None, use default. Default is None.
+            check_init_timeout (int): Timeout in seconds for checking if the
+                remote actor is initialized. Default is 60.
+
+        Returns:
+            RemoteEnvCfg: The converted RemoteEnvCfg.
+        """
+        from robo_orchard_core.envs.remote import as_remote_env
+
+        return as_remote_env(
+            cfg=self,
+            remote_class_config=remote_class_config,
+            ray_init_config=ray_init_config,
+            check_init_timeout=check_init_timeout,
+        )
+
+
+EnvBaseCfgType_co = TypeVar(
+    "EnvBaseCfgType_co", bound=EnvBaseCfg, covariant=True
+)
