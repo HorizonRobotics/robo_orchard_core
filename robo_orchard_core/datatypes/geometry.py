@@ -17,6 +17,7 @@
 """The geometry dataclass for 3D transformations and poses."""
 
 from __future__ import annotations
+import copy
 from typing import Sequence, Type
 
 import torch
@@ -221,7 +222,7 @@ class BatchTransform3D(DataClass, TensorToMixin):
                 t01=other.xyz,
                 q01=other.quat,
             )
-        return cls(xyz=t, quat=q, timestamps=first.timestamps)
+        return cls(xyz=t, quat=q, timestamps=copy.deepcopy(first.timestamps))
 
     def compose(self, *others: Self) -> Self:
         """Compose transformations with other transformations.
@@ -593,6 +594,8 @@ class BatchFrameTransform(BatchTransform3D):
 
     def inverse(self) -> Self:
         """Get the inverse of the transformations.
+
+        Note that this method will reverse the parent and child frame IDs.
 
         Returns:
             Self: A new object with the inverse transformations.

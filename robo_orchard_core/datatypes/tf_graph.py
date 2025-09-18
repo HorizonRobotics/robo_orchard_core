@@ -25,7 +25,7 @@ EDGE_TYPE = TypeVar("EDGE_TYPE")
 NODE_TYPE = TypeVar("NODE_TYPE")
 
 
-class EdgeGraph(DataClass, Generic[EDGE_TYPE, NODE_TYPE]):
+class EdgeGraph(Generic[EDGE_TYPE, NODE_TYPE]):
     """A generic edge graph data structure."""
 
     edges: dict[str, dict[str, EDGE_TYPE]]
@@ -34,11 +34,16 @@ class EdgeGraph(DataClass, Generic[EDGE_TYPE, NODE_TYPE]):
     """The nodes are represented as string dict."""
 
     def __init__(self):
-        super().__init__(edges={}, nodes={})
+        self.edges = {}
+        self.nodes = {}
         self._in_degree = {node_id: 0 for node_id in self.nodes}
 
     def _add_node(self, node_id: str, node: NODE_TYPE):
-        """Add a node to the graph."""
+        """Add a node to the graph.
+
+        Raises:
+            ValueError: If the node already exists.
+        """
         if node_id in self.nodes:
             raise ValueError(f"Node {node_id} already exists.")
         self.nodes[node_id] = node
@@ -46,7 +51,12 @@ class EdgeGraph(DataClass, Generic[EDGE_TYPE, NODE_TYPE]):
         self._in_degree[node_id] = 0
 
     def _add_edge(self, from_node: str, to_node: str, edge: EDGE_TYPE):
-        """Add an edge between two nodes."""
+        """Add an edge between two nodes.
+
+        Raises:
+            ValueError: If either node does not exist or if the edge already
+                exists.
+        """
         if from_node not in self.nodes:
             raise ValueError(f"From node {from_node} does not exist.")
         if to_node not in self.nodes:
@@ -174,7 +184,9 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
     ):
         super().__init__()
         self._bidirectional = bidirectional
+        # the dict to store mirrored edges
         self._mirrored_edges: dict[str, dict[str, BatchFrameTransform]] = {}
+        # the dict to store whether the edge is static (include mirrored edges)
         self._static_edges: dict[str, dict[str, bool]] = {}
 
         if tf_list is not None:
@@ -202,12 +214,20 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
 
         Overwrites the base class method to ensure that mirrored edges
         and static edges are initialized correctly.
+
+        Raises:
+            ValueError: If the node already exists.
+
         """
-        ret = super()._add_node(node_id, node)
         if node_id in self._mirrored_edges:
             raise ValueError(
                 f"Node {node_id} already exists in mirrored edges."
             )
+        if node_id in self._static_edges:
+            raise ValueError(f"Node {node_id} already exists in static edges.")
+
+        ret = super()._add_node(node_id, node)
+
         self._mirrored_edges[node_id] = {}
         self._static_edges[node_id] = {}
         return ret
@@ -261,10 +281,21 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
             tf.child_frame_id, None
         )
         if old is None:
-            raise ValueError(
-                f"BatchFrameTransform from {tf.parent_frame_id} to "
-                f"{tf.child_frame_id} does not exist."
+            is_in_mirror = self.is_mirrored_tf(
+                tf.parent_frame_id, tf.child_frame_id
             )
+            if is_in_mirror:
+                raise ValueError(
+                    f"BatchFrameTransform from {tf.parent_frame_id} to "
+                    f"{tf.child_frame_id} is a mirrored transform. "
+                    f"Please update the original transform from "
+                    f"{tf.child_frame_id} to {tf.parent_frame_id}."
+                )
+            else:
+                raise ValueError(
+                    f"BatchFrameTransform from {tf.parent_frame_id} to "
+                    f"{tf.child_frame_id} does not exist."
+                )
         # check if the new transform is static
         is_static = self._static_edges.get(tf.parent_frame_id, {}).get(
             tf.child_frame_id, False
@@ -367,6 +398,16 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
     ) -> BatchFrameTransform | list[BatchFrameTransform] | None:
         """Get the transformation between two frames.
 
+        Note:
+            - If compose is True, it returns a single BatchFrameTransform
+              object representing the composed transformation from parent
+              frame to child frame. The returned BatchFrameTransform may
+              be shared from graph and not copied.
+            - If compose is False, it returns a list of BatchFrameTransform
+              objects representing the path from child tf to parent tf. The
+              BatchFrameTransform is shared from graph and not copied.
+            - If no path exists, it returns None.
+
         Args:
             parent_frame_id (str): The ID of the parent frame.
             child_frame_id (str): The ID of the child frame.
@@ -436,3 +477,8 @@ class BatchFrameTransformGraph(EdgeGraph[BatchFrameTransform, str]):
         )
         for k, v in new.__dict__.items():
             self.__dict__[k] = v
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, BatchFrameTransformGraph):
+            return False
+        return self.as_state() == other.as_state()

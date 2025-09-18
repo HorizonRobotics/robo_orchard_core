@@ -405,8 +405,8 @@ class BatchImageData(DataClass):
         layout = guess_channel_layout(self.sensor_data)
         if layout != ImageChannelLayout.HWC:
             raise NotImplementedError(
-                "Only HWC channel layout is supported for applying "
-                "2D transformations."
+                "Only HWC channel layout is supported for "
+                "applying 2D transformations."
             )
 
         src_hw = get_image_shape(self.sensor_data)

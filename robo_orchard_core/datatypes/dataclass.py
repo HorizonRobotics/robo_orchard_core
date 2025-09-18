@@ -122,6 +122,14 @@ class DataClass(BaseModel):
         """Hack to replace __post_init__ in configclass."""
         pass
 
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get the value of the feature by key.
+
+        This method provides a dict like get method to access the
+        attributes of the data class.
+        """
+        return getattr(self, key, default)
+
     def model_post_init(self, *args, **kwargs):
         """Post init method for the model.
 
@@ -165,6 +173,18 @@ class DataClass(BaseModel):
         if not isinstance(other, DataClass):
             raise NotImplementedError()
         return obj_eq(self.__dict__, other.__dict__)
+
+    @classmethod
+    def dataset_feature(cls, *args, **kwargs):
+        """A decorator to get huggingface dataset feature.
+
+        This method provide a placeholder for getting the corresponding
+        huggingface dataset feature for the data class.
+        """
+        raise NotImplementedError(
+            "dataset_feature is not implemented for DataClass."
+            "Please implement it in the subclass."
+        )
 
 
 class TensorToMixin:
