@@ -85,16 +85,24 @@ def is_ray_actor_alive(
         actor_id = remote._actor_id.hex()
         try:
             state = get_actor_state(actor_id)
+            # handle case when the task is not submitted yet
+            if state is None:
+                if error_info is not None:
+                    error_info["error"] = f"Actor id {actor_id} not found!"
+                return False
             actor_live_state: str = state.state  # type: ignore
+            # raise died error if the actor is dead
             if actor_live_state == "DEAD":
                 death_cause = state.death_cause[  # type: ignore
                     "creation_task_failure_context"
                 ]["formatted_exception_string"]
-                raise RayActorDiedError(
-                    f"Ray actor is dead. cause: {death_cause}"
-                )
+                err_msg = f"Ray actor is dead. cause: {death_cause}"
+                if error_info is not None:
+                    error_info["error"] = err_msg
+                raise RayActorDiedError(err_msg)
             if error_info is not None:
                 error_info["error"] = f"State: {actor_live_state}"
+            # only return true if the actor is alive
             return state is not None and actor_live_state == "ALIVE"
         except RayActorDiedError as e:
             raise e

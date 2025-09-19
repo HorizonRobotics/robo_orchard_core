@@ -21,6 +21,7 @@ import copy
 from typing import Callable, Literal, Sequence
 
 import torch
+from PIL import Image
 from typing_extensions import Self
 
 from robo_orchard_core.datatypes.dataclass import DataClass, TensorToMixin
@@ -457,6 +458,41 @@ class BatchImageData(DataClass):
         ret = self.model_copy(deep=False)
         ret.sensor_data = dst
         return ret
+
+    def as_pil_images(self) -> list[Image.Image]:
+        """Convert BatchCameraData to a list of PIL images."""
+        sensor_data = self.sensor_data
+        if self.channel_layout == ImageChannelLayout.CHW:
+            sensor_data = sensor_data.permute(0, 2, 3, 1)  # Convert to HWC
+        elif self.channel_layout != ImageChannelLayout.HWC:
+            raise NotImplementedError(
+                f"Unsupported channel layout: {self.channel_layout}. "
+                "Expected HWC or CHW."
+            )
+        mode = self.pix_fmt
+        sensor_data = sensor_data.numpy(force=False)
+        if self.pix_fmt == ImageMode.BGR:
+            sensor_data = sensor_data[..., ::-1]  # Convert BGR to RGB
+            mode = ImageMode.RGB
+        elif self.pix_fmt == ImageMode.RGB:
+            pass
+        elif self.pix_fmt in [
+            ImageMode.I,
+            ImageMode.I16,
+            ImageMode.BIT,
+            ImageMode.F,
+            ImageMode.L,
+        ]:
+            sensor_data = sensor_data.squeeze(
+                -1
+            )  # Remove last channel for grayscale
+        else:
+            raise NotImplementedError(
+                "Unsupported pixel format: "
+                f"{self.pix_fmt}. Expected RGB, BGR, or grayscale."
+            )
+        pil_images = [Image.fromarray(img, mode=mode) for img in sensor_data]
+        return pil_images
 
 
 class BatchCameraData(BatchCameraInfo, BatchImageData):

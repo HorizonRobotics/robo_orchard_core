@@ -28,6 +28,8 @@ from robo_orchard_core.datatypes.dataclass import (
 from robo_orchard_core.datatypes.timestamps import concat_timestamps
 from robo_orchard_core.utils.config import TorchTensor
 
+__all__ = ["BatchJointsState"]
+
 
 class BatchJointsState(DataClass, TensorToMixin):
     position: TorchTensor | None = None
