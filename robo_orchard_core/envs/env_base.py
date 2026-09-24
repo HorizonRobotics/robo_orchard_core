@@ -141,6 +141,21 @@ class EnvBase(
 
         raise NotImplementedError
 
+    def get_observations(self) -> ObsType:
+        """Return observations for the current state without taking a step.
+
+        An implementation may return its latest cached observations or compute
+        them again. Callers should reset the environment before requesting
+        observations. Environments that do not support this operation retain
+        the default ``NotImplementedError`` behavior.
+
+        Returns:
+            ObsType: Observations in the same format as ``reset`` and ``step``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_observations()."
+        )
+
     @abstractmethod
     def close(self):
         """Close the environment."""

@@ -95,6 +95,8 @@
 #   environment.
 # - :py:meth:`~robo_orchard_core.envs.env_base.EnvBase.step`: Execute one
 #   step of the environment.
+# - :py:meth:`~robo_orchard_core.envs.env_base.EnvBase.get_observations`:
+#   Read current observations, when implemented by the environment.
 # - :py:meth:`~robo_orchard_core.envs.env_base.EnvBase.close`: Close the
 #   environment.
 #

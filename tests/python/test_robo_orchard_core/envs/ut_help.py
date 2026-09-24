@@ -45,6 +45,9 @@ class DummyEnv(EnvBase):
             info,
         )
 
+    def get_observations(self) -> dict[str, int]:
+        return {"obs": self.step_count}
+
     def close(self):
         pass
 

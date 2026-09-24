@@ -50,7 +50,8 @@ class RemoteEnv(RayRemoteInstance[EnvBase], EnvBase):
     """The environment class which runs the env in ray remote actor.
 
     This environment is useful for running multiple environments in parallel
-    in distributed setting.
+    in distributed setting. It forwards ``reset``, ``step``, and
+    ``get_observations`` to the remote environment.
 
 
     Args:
@@ -83,6 +84,10 @@ class RemoteEnv(RayRemoteInstance[EnvBase], EnvBase):
 
     def reset(self, *args, **kwargs) -> tuple[Any, dict]:
         return ray.get(self.remote.reset.remote(*args, **kwargs))
+
+    def get_observations(self) -> Any:
+        """Return the remote environment's current observations."""
+        return ray.get(self.remote.get_observations.remote())
 
     def async_reset(
         self, *args, **kwargs

@@ -51,9 +51,11 @@ class TestRemoteEnv:
         reset_ret, reset_info = remote.reset()
         assert reset_ret == {"obs": 0}
         assert reset_info == {"step": 0}
+        assert remote.get_observations() == {"obs": 0}
 
         step_ret = remote.step("action_1")
         assert step_ret[0] == {"obs": 1, "act": "action_1"}  # type: ignore
+        assert remote.get_observations() == {"obs": 1}
         assert step_ret[1] == 0.0  # type: ignore
         assert step_ret[2] is False  # type: ignore
         assert step_ret[3] is False  # type: ignore

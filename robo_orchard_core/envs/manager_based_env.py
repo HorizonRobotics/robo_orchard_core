@@ -212,6 +212,10 @@ class TermManagerBasedEnv(
         self.action_manager.reset(env_ids=env_ids)
         self.event_manager.reset(env_ids=env_ids)
 
+    def get_observations(self) -> ObsReturnType:
+        """Compute current observations through the observation manager."""
+        return self.observation_manager.get_observations()
+
     @abstractmethod
     def reset(
         self,

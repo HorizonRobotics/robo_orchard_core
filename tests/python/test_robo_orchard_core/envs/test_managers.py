@@ -90,6 +90,12 @@ class DummyEnv(EnvBase[Any, Any]):
         return None
 
 
+def test_env_base_get_observations_is_optional() -> None:
+    env = DummyEnv()
+    with pytest.raises(NotImplementedError, match="get_observations"):
+        env.get_observations()
+
+
 class DummySceneEntityCfg(SceneEntityCfg):
     def resolve(self, scene: object) -> None:
         del scene
